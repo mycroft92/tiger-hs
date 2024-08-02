@@ -220,7 +220,7 @@ module Parser where
       <|> assignParser
 
     expr :: Parser Exp
-    expr = undefined
+    expr = makeExprParser term operators
 
 
 
