@@ -24,7 +24,7 @@ module Parser where
     import Text.Megaparsec.Debug (dbg)
     -- import Control.Monad (void)
     import Data.Functor ( void, ($>) )
-    
+
 
     -- data ParserState = ParserState {
     --     errors   :: [Errors],
@@ -150,12 +150,12 @@ module Parser where
             return (chr num)
 
     identifier :: Parser String
-    identifier = do
+    identifier = space *> do
       start <- getSrcPos
       s     <- satisfy isAlpha
       name  <- Data.Text.unpack <$> takeWhileP (Just "identifier") (\x -> isAlphaNum x || x == '_')
       if (s:name) `elem` keywords then
-        fail $ "keyword found: "++show name++"@"++show start++", when identifier expected."
+        fail $ "keyword found: "++show (s:name)++"@"++show start++", when identifier expected."
       else
         return (s:name)
 
@@ -167,7 +167,7 @@ module Parser where
       if (s:name) == t then
         return (s:name)
       else
-        fail $ "identifier found: "++show name++"@"++show start++", when keyword expected.") <* space
+        fail $ "identifier found: "++show (s:name)++"@"++show start++", when keyword "++show t ++" expected.") <* space
 
     operators :: [[Operator Parser Exp]]
     operators = [[minus],
@@ -248,31 +248,63 @@ module Parser where
       void (keyword "then")
       texp <- expr <?> "true exp"
       return $ IfExp cond texp Nothing
-    
+
     ifexp :: Parser Exp
     ifexp = try ite <|> ite'
 
     whileexp :: Parser Exp
-    whileexp = undefined
+    whileexp = annotate $ do
+      void (keyword "while")
+      cond <- lexeme expr <?> "loop condition"
+      void (keyword "do")
+      WhileExp cond <$> lexeme expr <?> "loop body"
+
+    forexp  :: Parser Exp
+    forexp = annotate $ do
+      void (keyword "for")
+      id    <- lexeme identifier <?> "loop variable"
+      void (symbol ":=")
+      start <- lexeme expr <?> "loop start"
+      void (keyword "to")
+      end   <- lexeme expr <?> "loop end"
+      void (keyword "do")
+      body <- lexeme expr <?> "loop body"
+      return $ ForExp id False start end body
+
+    letexp :: Parser Exp
+    letexp = annotate $ do
+      void (keyword "let")
+      letdecs <- sepBy1 dec space1
+      void (keyword "in")
+      seqstart <- getSrcPos
+      expseq   <- sepBy1 expr (symbol ";")
+      seqend   <- getSrcPos
+      void (keyword "end")
+      return $ LetExp letdecs (SeqExp expseq (Range seqstart seqend))
 
 
     term :: Parser Exp
     term = try strparse
       <|> try (annotate (IntExp <$> lexeme integer))
       <|> try (annotate (keyword "nil" $> NilExp))
-      <|> try (annotate (SeqExp <$> lexeme (parens (sepBy expr (symbol ";")))))
+      <|> try (annotate (SeqExp <$> lexeme (parens (sepBy1 expr (symbol ";")))))
+      -- <|> try (parens expr)
       -- record, callexp and lvalue all start with same identifier rule.
       <|> try (annotate callexp)
       <|> try (annotate recordexp)
       <|> try (annotate arrayexp)
       <|> try (annotate assignexp)
       <|> try break
+      <|> try whileexp
+      <|> try forexp
       <|> try ifexp
-      <|>  (VarExp <$> lvalue)
+      <|> try letexp
+      <|> (VarExp <$> lvalue)
+      
 
       where
         callexp :: Parser (Range -> Exp)
-        callexp = do 
+        callexp = do
           id   <- lexeme identifier <?> "Function call identifier"
           exps <- lexeme $ parens (sepBy expr (symbol ","))
           return $ CallExp id exps
@@ -285,10 +317,10 @@ module Parser where
 
         fieldexp :: Parser Field
         fieldexp = space *> annotate (do
-          id  <- lexeme identifier <?> "record field identifier" 
+          id  <- lexeme identifier <?> "record field identifier"
           void (symbol "=" <?> "record assignment")
           Field id <$> expr)
-        
+
         arrayexp :: Parser (Range -> Exp)
         arrayexp = do
           id <- lexeme identifier <?> "Array identifier"
@@ -302,7 +334,6 @@ module Parser where
           lval <- lexeme lvalue <?> "assign Lvalue"
           void (symbol ":=")
           AssignExp lval <$> lexeme expr
-
 
         break :: Parser Exp
         break = annotate $ void (keyword "break") $> BreakExp
@@ -322,19 +353,22 @@ module Parser where
       return $ RecField id False tyid
 
     typeFields :: Parser [RecField]
-    typeFields = sepBy typeField (symbol ",")
+    typeFields = dbg "type fields" $ sepBy typeField (symbol ",")
+
 
     tydecs :: Parser Dec
-    tydecs = space *> annotate (TypeDec <$> some tydec <?> "Type declarations")
+    tydecs =  annotate $ do
+      a <- sepBy1 tydec space1 <?> "Type declarations"
+      return $ TypeDec a
       where
         tydec :: Parser TypeD
-        tydec = space *> annotate (parser <?> "type declaration")
+        tydec =  annotate (parser <?> "type declaration")
           where
             parser = do
-              void $ lexeme "type"
+              void (keyword "type")
               tyid <- lexeme identifier
               void $ symbol "="
-              lookAhead (optional $ lexeme identifier <|> keyword "array" <|> symbol' "{") >>= \case
+              lookAhead (optional $ space *> keyword "array" <|> identifier <|> symbol' "{") >>= \case
                 Just "array" -> arrayType tyid
                 Just "{"     -> fieldDecl tyid
                 Just  _      -> do
@@ -357,50 +391,113 @@ module Parser where
               TypeD x . RecordTy xs . Range start <$> getSrcPos
 
     vardec :: Parser Dec
-    vardec = space *> annotate (do
+    vardec = annotate (do
       void (keyword "var")
       varid <- lexeme identifier
-      lookAhead (optional $ try (lexeme identifier)) >>= \case
-        Just tyid -> withType varid tyid
-        Nothing   -> withoutType varid)
+      void (space *> char ':')
+      lookAhead (optional (char '=')) >>= \case
+        Just {} -> withoutType varid
+        Nothing -> withType varid
+      )
       where
-        withType varid tyid = do
+        withType varid = do
+          tyid <- lexeme identifier
           void (symbol ":=")
           exp <- lexeme expr
           return $ VarDec varid False (Just tyid) exp
 
         withoutType varid = do
-          void (symbol ":=")
+          void (char '=')
           exp <- lexeme expr
           return $ VarDec varid False Nothing exp
-    
+
     fundecs :: Parser Dec
-    fundecs = annotate (FunctionDec <$> some fundec <?> "function declaration block")
+    fundecs = annotate (FunctionDec <$> sepBy1 fundec space1 <?> "function declaration block")
       where
         fundec :: Parser FunDec
-        fundec = space *> annotate (do
-          void (keyword "function" <?> "function keyword")
-          id <- lexeme identifier <?> "function name"
-          params <- parens typeFields <?> "function arguments"
+        fundec = annotate (do
+          void (dbg "func entry" (keyword "function" <?> "function keyword"))
+          id <- dbg "func name" (lexeme identifier <?> "function name")
+          params <- dbg "params" (parens typeFields <?> "function arguments")
           lookAhead (space *> optional anySingle) >>= \case
             Just ':' -> do
-              void (space *> symbol ":")
+              void (symbol ":")
               retid <- lexeme identifier <?> "return type"
+              void (symbol "=")
               FunDec id params (Just retid) <$> parseExp
             Just '=' -> FunDec id params Nothing <$> parseExp
             _ -> fail "Expected '=' or ':' after function declaration."
           )
           where
             parseExp :: Parser Exp
-            parseExp = do
+            parseExp = dbg "parsing body" $ do
               void (space *> symbol "=")
               expr
 
+
+
     dec  :: Parser Dec
-    dec = tydecs <|> vardec <|> fundecs
+    -- dec = space *> try (annotate (TypeDec . (:[]) <$> tydec)) 
+    --   <|> try (annotate (FunctionDec . (:[]) <$> fundec))
+    --   <|> try vardec 
+
+    dec = space *> try vardec <|> try fundecs <|> try tydecs
+      -- try (annotate (TypeDec <$> sepBy1 tydec space1))<|>
+      -- try (annotate (FunctionDec  <$>sepBy1 fundec space1))<|>
+      -- try vardec
+
 
     exprtest1 :: Either (ParseErrorBundle T.Text Void) Exp
-    exprtest1 = Text.Megaparsec.parse expr "" " a+b = c-d*5"
+    exprtest1 = Text.Megaparsec.parse expr "" " (a+b) = c-d*(5+2)"
 
     exprtest2 :: Either (ParseErrorBundle T.Text Void) Exp
     exprtest2 = Text.Megaparsec.parse expr "" "      (    a  + b = b-c*5 ;break    )"
+
+    exprtest3 :: Either (ParseErrorBundle T.Text Void) Exp
+    exprtest3 = Text.Megaparsec.parse expr "" "let var any : int := any{any=0} var i := readint(any) in nil end"
+
+    dectest :: Either (ParseErrorBundle T.Text Void) Dec
+    dectest = Text.Megaparsec.parse dec "" src3--" var any : any := any{any=0} var i := readint(any)"
+
+    dectest2 :: Either (ParseErrorBundle T.Text Void) [Dec]
+    dectest2 = runParser (space *>  some dec) "" src3 --" type intlist = array of int    type strlist = array of string var any : any := any{any=0} var i := readint(any)"
+    
+    functest :: Either (ParseErrorBundle T.Text Void) Dec
+    functest = Text.Megaparsec.parse fundecs "" "function printboard() = (for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\"))"
+
+    exprtest5 :: Either (ParseErrorBundle T.Text Void) Exp
+    exprtest5 = Text.Megaparsec.parse letexp "" src2
+
+    src3 :: T.Text
+    src3 = "var N := 8 type intArray = array of int var row := intArray [ N ] of 0 var col := intArray [ N ] of 0 var diagl := intArray [N+N-l] of 0 var diag2 : = intArray [N+N-l] of 0 function printboard() = (for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\"))"
+
+    src2 :: T.Text
+    src2 = "let var N := 8 type intArray = array of int var row := intArray [ N ] of 0 var col := intArray [ N ] of 0 var diagl := intArray [N+N-l] of 0 var diag2 : = intArray [N+N-l] of 0 function printboard() = (for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\")) in try(0) end "
+-- r := 0 to N-l
+-- if row[r]=0 & diagl[r+c]=0 & diag2[r+7-c]=0
+-- then (row[r]:=l; diagl[r+c]:=1; diag2[r+7-c]:=1;
+-- col[c]:=r;
+-- try(c+1);
+-- row[r]:=0; diagl[r+c]:=0; diag2[r+7-c]:=0)"
+
+    src :: T.Text
+    src = "let\
+\ var N := 8\
+\ type intArray = array of int\
+\ var row := intArray [ N ] of 0\
+\ var col := intArray [ N ] of 0\
+\ var diagl := intArray [N+N-l] of 0 var diag2 : = intArray [N+N-l] of 0\
+\ function printboard() = (for i := 0 to N-l\
+\ do (for j := 0 to N-l\
+\ do print(if col[i]=j then \" 0\" else \" .\");\
+\ print(\"\\n\")); print(\"\\n\"))\
+\ function try(c:int) = if c=N\
+\ then printboardO\
+\ else for do\
+\ in try(O) end\
+\ r := 0 to N-l\
+\ if row[r]=0 & diagl[r+c]=0 & diag2[r+7-c]=0\
+\ then (row[r]:=l; diagl[r+c]:=1; diag2[r+7-c]:=1;\
+\ col[c]:=r;\
+\ try(c+1);\
+\ row[r]:=0; diagl[r+c]:=0; diag2[r+7-c]:=0)"
