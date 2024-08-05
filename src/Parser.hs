@@ -465,6 +465,9 @@ module Parser where
     functest :: Either (ParseErrorBundle T.Text Void) Dec
     functest = Text.Megaparsec.parse fundecs "" "function printboard() = (for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\"))"
 
+    fortest :: Either (ParseErrorBundle T.Text Void) Exp
+    fortest = Text.Megaparsec.parse forexp "" "for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\")"
+
     exprtest5 :: Either (ParseErrorBundle T.Text Void) Exp
     exprtest5 = Text.Megaparsec.parse letexp "" src2
 
