@@ -266,8 +266,8 @@ module Parser where
       void (symbol ":=")
       start <- lexeme expr <?> "loop start"
       void (keyword "to")
-      end   <- lexeme expr <?> "loop end"
-      void (keyword "do")
+      end   <- dbg "loop end" (lexeme expr <?> "loop end")
+      void (dbg "loop do" $ keyword "do")
       body <- lexeme expr <?> "loop body"
       return $ ForExp id False start end body
 
@@ -287,16 +287,16 @@ module Parser where
     term = try strparse
       <|> try (annotate (IntExp <$> lexeme integer))
       <|> try (annotate (keyword "nil" $> NilExp))
-      <|> try (annotate (SeqExp <$> lexeme (parens (sepBy1 expr (symbol ";")))))
+      <|> try (dbg "seq exp" (annotate (SeqExp <$> lexeme (parens (sepBy1 expr (symbol ";"))))))
       -- <|> try (parens expr)
       -- record, callexp and lvalue all start with same identifier rule.
-      <|> try (annotate callexp)
+      <|> try (dbg "callexp" (annotate callexp))
       <|> try (annotate recordexp)
       <|> try (annotate arrayexp)
       <|> try (annotate assignexp)
       <|> try break
       <|> try whileexp
-      <|> try forexp
+      <|> try (dbg "forexp" forexp)
       <|> try ifexp
       <|> try letexp
       <|> (VarExp <$> lvalue)
@@ -467,6 +467,9 @@ module Parser where
 
     fortest :: Either (ParseErrorBundle T.Text Void) Exp
     fortest = Text.Megaparsec.parse forexp "" "for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\")); print(\"\n\")"
+
+    argtest :: Either (ParseErrorBundle T.Text Void) Exp
+    argtest = Text.Megaparsec.parse expr "" "(for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\n\"))"
 
     exprtest5 :: Either (ParseErrorBundle T.Text Void) Exp
     exprtest5 = Text.Megaparsec.parse letexp "" src2
