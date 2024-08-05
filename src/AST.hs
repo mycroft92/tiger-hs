@@ -18,14 +18,14 @@ module AST where
     -- name, escaping, type, range
     data RecField = RecField String Bool String Range  deriving (Show)
 
-    data Dec = 
+    data Dec =
         FunctionDec [FunDec] Range
         -- name, escaping, Maybe type, init, range
         | VarDec String Bool (Maybe String) Exp Range
         | TypeDec [TypeD] Range deriving (Show)
-    
-    data Exp = 
-        VarExp Var 
+
+    data Exp =
+        VarExp Var
         | NilExp Range
         | IntExp Int Range
         | StringExp String Range
@@ -45,11 +45,32 @@ module AST where
         -- type, size, init, range
         | ArrayExp String Exp Exp Range deriving (Show)
 
+    squash :: Exp -> Exp
+    squash a@(SeqExp es r)
+        | length es == 1  = head es
+        | otherwise       = SeqExp (map squash es) r
+    squash a@(VarExp _)   = a
+    squash a@(NilExp _)   = a
+    squash a@(IntExp _ _) = a
+    squash a@(StringExp _ _) = a
+    squash (CallExp s es r)  = CallExp s (map squash es) r
+    squash (UnopExp e r)     = UnopExp (squash e) r
+    squash (BinopExp e1 op e2 r)  = BinopExp (squash e1) op (squash e2) r
+    squash a@(RecordExp {})       = a
+    squash (AssignExp v e r)      = AssignExp v (squash e) r
+    squash (IfExp c t f r)        = IfExp (squash c) (squash t)  (squash <$> f) r
+    squash (WhileExp c b r)       = WhileExp (squash c) (squash b) r
+    squash (ForExp s b c e1 e2 r) = ForExp s b (squash c) (squash e1) (squash e2) r
+    squash a@(BreakExp {})        = a
+    squash (LetExp ds e r)        = LetExp ds (squash e) r
+    squash (ArrayExp s e1 e2 r)   = ArrayExp s (squash e1) (squash e2) r
+            
+
     instance Show Pos where
         show (Pos l c) = "("++show l++","++show c ++")"
-    
+
     instance Show Range where
-        show (Range s e) = show s ++ "-" ++ show e 
+        show (Range s e) = show s ++ "-" ++ show e
 
     class Rangers c where
         getRange :: c -> Range
@@ -58,14 +79,14 @@ module AST where
         getStart :: c -> Pos
         getStart c = start $ getRange c
         {-# MINIMAL getRange #-}
-    
+
     instance Rangers Field where
         getRange (Field _ _ r) =r
 
     instance Rangers Var where
         getRange (SimpleVar _ r)  = r
         getRange (FieldVar _ _ r) = r
-        getRange (SubscriptVar _ _ r) = r 
+        getRange (SubscriptVar _ _ r) = r
 
     instance Rangers FunDec where
         getRange (FunDec _ _ _ _ r) =r
@@ -80,7 +101,7 @@ module AST where
 
     instance Rangers RecField where
         getRange (RecField _ _ _ r) = r
-    
+
     instance Rangers Dec where
         getRange (FunctionDec _ r)  = r
         getRange (VarDec _ _ _ _ r) = r
