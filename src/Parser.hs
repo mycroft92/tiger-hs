@@ -16,7 +16,8 @@ module Parser where
     import qualified Data.Text as T
     import qualified Text.Megaparsec.Char.Lexer as L
     import Text.Megaparsec.Char ( char, char', space, space1 )
-    import Text.Megaparsec hiding (State)
+    import Text.Megaparsec hiding (State, parse)
+    import Text.Megaparsec as TP
     import Text.Megaparsec.Error (errorBundlePretty)
     import AST
     import Data.Void ()
@@ -177,7 +178,8 @@ module Parser where
       name  <- Data.Text.unpack <$> takeWhileP (Just "identifier") (\x -> isAlphaNum x || x == '_')
       return (s:name)
 
-   
+    checkNL :: Parser ()
+    checkNL = void (some (anySingleBut '\n'))
     -- error recovery parts not working for now
     checkKeywords :: T.Text  -> Parser T.Text
     checkKeywords str  = do
@@ -219,7 +221,7 @@ module Parser where
       s   <- getSrcPos
       void (synchronizeFunc k location)
       e   <- checkKeywords ""      
-      -- errorDec . Range s <$> getSrcPos
+      --errorDec . Range s <$> getSrcPos
       parseError k
 
 
@@ -430,11 +432,11 @@ module Parser where
 
     tydecs :: Parser Dec
     tydecs =  annotate $ do
-      a <- sepBy1 tydec space1 <?> "Type declarations"
+      a <- some tydec  <?> "Type declarations"
       return $ TypeDec a
-      where
-        tydec :: Parser TypeD
-        tydec =  annotate (parser <?> "type declaration")
+    
+    tydec :: Parser TypeD
+    tydec =  annotate (parser <?> "type declaration")
           where
             parser = do
               void (keyword "type")
@@ -470,7 +472,7 @@ module Parser where
       lookAhead (optional (char '=')) >>= \case
         Just {} -> withoutType varid
         Nothing -> withType varid
-      )
+      ) <* space
       where
         withType varid = do
           tyid <- myopt (lexeme identifier) "Type identifier expected after ':'"
@@ -484,13 +486,13 @@ module Parser where
           return $ VarDec varid False Nothing exp
 
     fundecs :: Parser Dec
-    fundecs = annotate (FunctionDec <$> some fundec <?> "function declaration block")
-      where
-        fundec :: Parser FunDec
-        fundec = annotate (do
+    fundecs = annotate (FunctionDec <$> some fundec <?> "function declaration block") <* space
+    
+    fundec :: Parser FunDec
+    fundec = annotate (do
           void (inside "func entry" (keyword "function" <?> "function keyword"))
           id <- lexeme identifier <?> "function name"
-          params <- dbg "params" (parens typeFields <?> "function arguments")
+          params <- inside "params" (parens typeFields <?> "function arguments")
           lookAhead (space *> optional anySingle) >>= \case
             Just ':' -> do
               void (symbol ":")
@@ -499,7 +501,7 @@ module Parser where
               FunDec id params (Just retid) <$> parseExp
             Just '=' -> FunDec id params Nothing <$> parseExp
             _ -> fail "Expected '=' or ':' after function declaration."
-          )
+          ) <* space
           where
             parseExp :: Parser Exp
             parseExp = dbg "function body" $ do
@@ -513,7 +515,19 @@ module Parser where
     --   <|> try (annotate (FunctionDec . (:[]) <$> fundec))
     --   <|> try vardec 
 
-    dec = space *> try vardec <|> try fundecs <|> try tydecs
+    dec = try  vardec <|> try fundecs <|> try  tydecs
+
+    -- better error reporting with this
+    dec' :: Parser Dec
+    dec' = lookAhead (space *> optional identifier') >>= \case
+      Just "function" -> annotate $ do
+        fd <- fundec
+        return $ FunctionDec [fd]
+      Just "var"      -> vardec
+      Just "type"     -> annotate $ do
+        td <- tydec
+        return $ TypeDec [td]
+      _ -> fail "not a type declaration"
       -- try (annotate (TypeDec <$> sepBy1 tydec space1))<|>
       -- try (annotate (FunctionDec  <$>sepBy1 fundec space1))<|>
       -- try vardec
@@ -523,22 +537,22 @@ module Parser where
     --     withRecovery 
 
     exprtest1 :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    exprtest1 = Text.Megaparsec.parse expr "" " (a+b) = c-d*(5+2)"
+    exprtest1 = TP.parse expr "" " (a+b) = c-d*(5+2)"
 
     exprtest2 :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    exprtest2 = Text.Megaparsec.parse expr "" "      (    a  + b = b-c*5 ;break    )"
+    exprtest2 = TP.parse expr "" "      (    a  + b = b-c*5 ;break    )"
 
     exprtest3 :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    exprtest3 = Text.Megaparsec.parse expr "" "let var any : int := any{any=0} var i := readint(any) in nil end"
+    exprtest3 = TP.parse expr "" "let var any : int := any{any=0} var i := readint(any) in nil end"
 
     dectest :: Either (ParseErrorBundle T.Text ParserErrors) [Dec]
-    dectest = Text.Megaparsec.parse (some dec) "" src3--" var any : any := any{any=0} var i := readint(any)"
+    dectest = TP.parse (some dec) "" src3--" var any : any := any{any=0} var i := readint(any)"
 
     dectest2 :: Either (ParseErrorBundle T.Text ParserErrors) [Dec]
     dectest2 = runParser (space *>  some dec) "" src3 --" type intlist = array of int    type strlist = array of string var any : any := any{any=0} var i := readint(any)"
 
     functest :: Either (ParseErrorBundle T.Text ParserErrors) [Dec]
-    functest = Text.Megaparsec.parse (space *>some dec) "" "var N := 8\
+    functest = TP.parse (space *>some dec) "" "var N := 8\
 \ type intArray = array of int\
 \ var row := intArray [ N ] of 0\
 \ var col := intArray [ N ] of 0\
@@ -558,23 +572,23 @@ module Parser where
 \     row[r]:=0; diagl[r+c]:=0; diag2[r+7-c]:=0)"
 
     strtest :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    strtest = Text.Megaparsec.parse strparse "" "\" \n\""
+    strtest = TP.parse strparse "" "\" \n\""
 
     fortest :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    fortest = Text.Megaparsec.parse forexp "" "for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\\n\")); print(\"\\n\")"
+    fortest = TP.parse forexp "" "for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\\n\")); print(\"\\n\")"
 
     argtest :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    argtest = Text.Megaparsec.parse expr "" "( for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\") ; print(\"\n\"))"
+    argtest = TP.parse expr "" "( for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\") ; print(\"\n\"))"
 
     itetest :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    itetest = Text.Megaparsec.parse ifexp "" "if row[r]=0 & diagl[r+c]=0 & diag2[r+7-c]=0\
+    itetest = TP.parse ifexp "" "if row[r]=0 & diagl[r+c]=0 & diag2[r+7-c]=0\
 \     then (row[r]:=l; diagl[r+c]:=1; diag2[r+7-c]:=1;\
 \           col[c]:=r;\
 \           try(c+1);\
 \     row[r]:=0; diagl[r+c]:=0; diag2[r+7-c]:=0) "
 
-    exprtest5 :: Either (ParseErrorBundle T.Text ParserErrors) Exp
-    exprtest5 = Text.Megaparsec.parse expr "" src
+    exprtest5 :: Either Errors Exp
+    exprtest5 = Parser.parse "" src
 
     src3 :: T.Text
     src3 = "var N := 8 type intArray = array of int var row := intArray [ N ] of 0 var col := intArray [ N ] of 0 var diagl := intArray [N+N-l] of 0 var diag2 := intArray [N+N-l] of 0 function printboard() = (for i := 0 to N-l do (for j := 0 to N-l do print(if col[i]=j then \" 0\" else \" .\"); print(\"\\n\")); print(\"\n\"))"
@@ -589,11 +603,11 @@ module Parser where
 -- row[r]:=0; diagl[r+c]:=0; diag2[r+7-c]:=0)"
 
     src :: T.Text
-    src = "let\
-\ var N := 8\
-\ type intArray = array of int\
-\ var row := intArray [ N ] of 0\
-\ var col  := intArray [ N ] of 0\
+    src = "let\n\
+\ var N := 8\n\
+\ type intArray = array of int\n\
+\ var row := intArray [ N ] of 0\n\
+\ var col  := intArray [ N ] of 0\n\
 \ var diagl := intArray [N+N-l] of 0 var diag2 := intArray [N+N-l] of 0\
 \ function printboard() = \
 \    (for i := 0 to N-l do \

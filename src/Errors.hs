@@ -9,7 +9,7 @@ module Errors where
     import Data.Set (Set)
 
     import Data.Void
-    import Text.Megaparsec ( ShowErrorComponent,
+    import Text.Megaparsec ( ShowErrorComponent (showErrorComponent),
         Parsec,
         parseErrorTextPretty,
         ErrorFancy (..),
@@ -58,12 +58,12 @@ module Errors where
         deriving (Eq, Ord, Show)
 
     instance Text.Megaparsec.ShowErrorComponent ParserErrors where
-    showErrorComponent (TrivialWithLocation stack us es) =
-        Text.Megaparsec.parseErrorTextPretty (Text.Megaparsec.TrivialError @Text @Void undefined us es)
-        ++ showPosStack stack
-    showErrorComponent (FancyWithLocation stack cs) =
-        Text.Megaparsec.parseErrorTextPretty (Text.Megaparsec.FancyError @Text @Void undefined (Set.singleton cs))
-        ++ showPosStack stack
+        showErrorComponent (TrivialWithLocation stack us es) =
+            Text.Megaparsec.parseErrorTextPretty (Text.Megaparsec.TrivialError @Text @Void undefined us es)
+            ++ showPosStack stack
+        showErrorComponent (FancyWithLocation stack cs) =
+            Text.Megaparsec.parseErrorTextPretty (Text.Megaparsec.FancyError @Text @Void undefined (Set.singleton cs))
+            ++ showPosStack stack
 
     showPosStack :: [String] -> String
     showPosStack = intercalate ", " . fmap ("in " ++)
