@@ -22,7 +22,10 @@ module AST where
         FunctionDec [FunDec] Range
         -- name, escaping, Maybe type, init, range
         | VarDec String Bool (Maybe String) Exp Range
-        | TypeDec [TypeD] Range deriving (Show)
+        | TypeDec [TypeD] Range  deriving (Show)
+
+    errorDec :: Range -> Dec
+    errorDec = VarDec "error" False Nothing (NilExp (Range (Pos 0 0) (Pos 0 0)))
 
     data Exp =
         VarExp Var

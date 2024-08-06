@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Parser where
     import Errors -- (Errors (..), ParserErrors (..))
@@ -18,7 +19,8 @@ module Parser where
     import Text.Megaparsec hiding (State)
     import Text.Megaparsec.Error (errorBundlePretty)
     import AST
-    import Data.Void (Void)
+    import Data.Void ()
+    import Data.Set as Set (map, singleton)
     import Data.Char (isAlphaNum, isAlpha, isPrint, isSpace, toUpper, chr, isDigit)
     import Data.Text (unpack)
     import Text.Megaparsec.Debug (dbg)
@@ -33,7 +35,7 @@ module Parser where
 
 
     -- type Parser a = ParsecT Void T.Text (State ParserState) a
-    
+
 
     -- parse :: FilePath -> T.Text -> Either [Errors] Exp
     -- parse fname src = case runState (runParserT strparse fname src) (ParserState [] fname) of
@@ -53,6 +55,9 @@ module Parser where
 
     keywords :: [String]
     keywords = ["for", "to", "while", "break", "let", "in", "if", "then", "else", "type", "end", "array", "function", "nil", "do", "var", "of"]
+
+    keywords' :: [String]
+    keywords' = ["for", "while", "let", "if", "type", "function", "nil", "var"]
 
     spaces :: Parser ()
     spaces = L.space space1 (L.skipLineComment  "//") (L.skipBlockCommentNested "(*" "*)")
@@ -96,7 +101,7 @@ module Parser where
         strparser :: Parser String
         strparser = do
           res <- between (char '"') (char '"') (getstring "")
-          return $ T.unpack res 
+          return $ T.unpack res
 
         getstring :: T.Text -> Parser T.Text
         getstring str = do
@@ -165,6 +170,59 @@ module Parser where
       else
         return (s:name)
 
+    identifier' :: Parser String
+    identifier' = do
+      start <- getSrcPos
+      s     <- satisfy isAlpha
+      name  <- Data.Text.unpack <$> takeWhileP (Just "identifier") (\x -> isAlphaNum x || x == '_')
+      return (s:name)
+
+   
+    -- error recovery parts not working for now
+    checkKeywords :: T.Text  -> Parser T.Text
+    checkKeywords str  = do
+      space
+      lookAhead (optional identifier') >>= \case
+        Just val
+          | val `elem` keywords' -> return str
+          | otherwise -> do
+              c <- anySingle
+              checkKeywords (T.snoc str c)
+        Nothing  -> do
+          c <- anySingle
+          checkKeywords (T.snoc str c)
+
+    synchronize :: String -> ParseError T.Text ParserErrors -> Parser Exp
+    synchronize location k = do
+      s   <- getSrcPos
+      void (synchronizeFunc k location)
+      e   <- checkKeywords ""
+      -- NilExp . Range s <$> getSrcPos
+      parseError k
+        
+            -- f :: ParseError s ParserErrors -> m ()
+    synchronizeFunc :: (Token s1 ~ Char, MonadParsec ParserErrors s2 m) => ParseError s1 ParserErrors -> String -> m ()
+    synchronizeFunc (Text.Megaparsec.TrivialError _ us es) location = Text.Megaparsec.registerFancyFailure . Set.singleton . ErrorCustom $ TrivialWithLocation [location] us es
+    synchronizeFunc (Text.Megaparsec.FancyError _ xs) location   = Text.Megaparsec.registerFancyFailure  (Set.map f' xs)
+      where
+            f' (ErrorFail msg) = ErrorCustom $
+                        FancyWithLocation [location] (ErrorFail msg)
+            f' (ErrorIndentation ord rlvl alvl) = ErrorCustom $
+                        FancyWithLocation [location] (ErrorIndentation ord rlvl alvl)
+            f' (ErrorCustom (TrivialWithLocation ps us es)) = ErrorCustom $
+                        TrivialWithLocation (location:ps) us es
+            f' (ErrorCustom (FancyWithLocation ps cs)) = ErrorCustom $
+                        FancyWithLocation (location:ps) cs
+
+    synchronizeDec :: String -> ParseError T.Text ParserErrors -> Parser Dec
+    synchronizeDec location k = do
+      s   <- getSrcPos
+      void (synchronizeFunc k location)
+      e   <- checkKeywords ""      
+      -- errorDec . Range s <$> getSrcPos
+      parseError k
+
+
     identifier :: Parser String
     identifier = try (space *> identifier'' <* space)
 
@@ -211,7 +269,7 @@ module Parser where
 
     -- assignParser :: Parser Exp
     -- assignParser = undefined
-    
+
     lvalue :: Parser Var
     lvalue =  do
       void space
@@ -238,23 +296,23 @@ module Parser where
         subscriptId :: Var -> Parser Var
         subscriptId v = do
           start <- getSrcPos
-          exp   <- brackets expr
+          exp   <- withRecovery (synchronize "subscript exp") (brackets expr)
           end   <- getSrcPos
           lvalue' $ SubscriptVar v exp (Range start end)
 
     ifexp :: Parser Exp
-    ifexp = dbg "ite" (annotate $ do
+    ifexp = inside "ite" (annotate $ do
       void (keyword "if" <?> "if")
-      cond <- myopt (expr <?> "condition exp") "Failure in conditional expression"
+      cond <- withRecovery (synchronize "condition exp")  expr
       void (keyword "then")
-      texp <- myopt (dbg "true exp" expr <?> "true exp") "Failure in True Exp parsing"
+      texp <-  withRecovery (synchronize "true exp") (inside "true exp" expr)
       lookAhead (optional (space *> keyword "else")) >>= \case
-        Just _ ->  do 
+        Just _ ->  do
           void (space *> keyword "else")
-          fexp <- myopt (dbg "false exp" expr <?> "false exp") "Failure in False Exp parsing"
+          fexp <- withRecovery (synchronize "false exp") (inside "false exp" expr)
           return $ IfExp cond texp (Just fexp)
         Nothing -> return $ IfExp cond texp Nothing)
-      
+
 
     -- ite' :: Parser Exp
     -- ite' = annotate $  do
@@ -270,57 +328,57 @@ module Parser where
     whileexp :: Parser Exp
     whileexp = annotate $ do
       void (keyword "while")
-      cond <- lexeme expr <?> "loop condition"
+      cond <- withRecovery (synchronize "loop condition") (inside "while condition" (lexeme expr))
       void (keyword "do")
-      WhileExp cond <$> lexeme expr <?> "loop body"
+      WhileExp cond <$> withRecovery (synchronize "loop body") (inside "while body" (lexeme expr))
 
     forexp  :: Parser Exp
     forexp = annotate $ do
       void (keyword "for")
       id    <- lexeme identifier <?> "loop variable"
       void (symbol ":=")
-      start <- lexeme expr <?> "loop start"
+      start <- withRecovery (synchronize "loop start") (inside "forloop start" (lexeme expr))
       void (keyword "to")
-      end   <- dbg "loop end" (expr <?> "loop end")
-      void (dbg "loop do" $ keyword "do")
-      body <- myopt (expr <?> "loop body") "Failure to parse loop body"
+      end   <- withRecovery (synchronize "loop end") (inside "forloop end" expr )
+      void (keyword "do")
+      body <- withRecovery (synchronize "loop body") (inside "forloop body" expr)
       return $ ForExp id False start end body
 
     letexp :: Parser Exp
-    letexp = annotate $ do
+    letexp = inside "lextexp" (annotate $ do
       void (keyword "let")
-      letdecs <- some dec <* space
+      letdecs <- inside "letdecls" (some (withRecovery (synchronizeDec "letdecl") dec) <* space)
       void (keyword "in")
       seqstart <- getSrcPos
-      expseq   <- sepBy1 expr (symbol ";")
+      expseq   <- inside "letexpr" (sepBy1 (withRecovery (synchronize "letexpr") expr) (symbol ";"))
       seqend   <- getSrcPos
       void (keyword "end")
-      return $ LetExp letdecs (SeqExp expseq (Range seqstart seqend))
+      return $ LetExp letdecs (SeqExp expseq (Range seqstart seqend)))
 
 
     term :: Parser Exp
-    term = try (dbg "string parser" strparse)
-      <|> try (annotate (IntExp <$> lexeme integer))
+    term = (inside "string parser" strparse)
+      <|> (annotate (IntExp <$> lexeme integer))
       <|> try (annotate (keyword "nil" $> NilExp))
       <|> try break
       <|> try whileexp
-      <|> try (dbg "forexp" forexp)
+      <|> try (inside "forexp" forexp)
       <|> try ifexp
       <|> try letexp
       <|> try (annotate assignexp)
-      <|> try (dbg "seq exp" (annotate (SeqExp <$> lexeme (parens (sepBy expr (symbol ";"))))))
+      <|> try (inside "seq exp" (annotate (SeqExp <$> lexeme (parens (sepBy expr (symbol ";"))))))
       -- record, callexp and lvalue all start with same identifier rule.
-      <|> try (dbg "callexp" (annotate callexp))
+      <|> try (inside "callexp" (annotate callexp))
       <|> try (annotate recordexp)
       <|> try (annotate arrayexp)
       <|> (VarExp <$> lvalue)
-      
+
 
       where
         callexp :: Parser (Range -> Exp)
         callexp = do
           id   <- lexeme identifier <?> "Function call identifier"
-          exps <- dbg "param exps" $ lexeme $ parens (sepBy expr (symbol ","))
+          exps <- inside "call params" $ lexeme $ parens (sepBy expr (symbol ","))
           return $ CallExp id exps
 
         recordexp :: Parser (Range -> Exp)
@@ -333,21 +391,21 @@ module Parser where
         fieldexp = space *> annotate (do
           id  <- lexeme identifier <?> "record field identifier"
           void (symbol "=" <?> "record assignment")
-          Field id <$> expr)
+          Field id <$> inside "field exp" expr)
 
         arrayexp :: Parser (Range -> Exp)
         arrayexp = do
           id <- lexeme identifier <?> "Array identifier"
-          exp1 <- brackets expr <?> "Subscript exp"
+          exp1 <- inside "array subscript" (brackets expr <?> "Subscript exp")
           void (keyword "of")
-          exp2 <- lexeme expr <?> "Value exp"
+          exp2 <- inside "array value" (lexeme expr <?> "Value exp")
           return $ ArrayExp id exp1 exp2
 
         assignexp :: Parser (Range -> Exp)
         assignexp = do
           lval <- lexeme lvalue <?> "assign Lvalue"
           void (symbol ":=")
-          AssignExp lval <$> lexeme expr
+          AssignExp lval <$> inside "assign exp" (lexeme expr)
 
         break :: Parser Exp
         break = annotate $ void (keyword "break") $> BreakExp
@@ -417,21 +475,21 @@ module Parser where
         withType varid = do
           tyid <- myopt (lexeme identifier) "Type identifier expected after ':'"
           void (symbol ":=")
-          exp <- lexeme expr
+          exp <- withRecovery (synchronize "var exp") (lexeme expr)
           return $ VarDec varid False (Just tyid) exp
 
         withoutType varid = do
           void (char '=')
-          exp <- lexeme expr
+          exp <- withRecovery (synchronize "var exp") (lexeme expr)
           return $ VarDec varid False Nothing exp
 
     fundecs :: Parser Dec
-    fundecs = annotate (FunctionDec <$> sepBy1 fundec space1 <?> "function declaration block")
+    fundecs = annotate (FunctionDec <$> some fundec <?> "function declaration block")
       where
         fundec :: Parser FunDec
         fundec = annotate (do
-          void (dbg "func entry" (keyword "function" <?> "function keyword"))
-          id <- dbg "func name" (lexeme identifier <?> "function name")
+          void (inside "func entry" (keyword "function" <?> "function keyword"))
+          id <- lexeme identifier <?> "function name"
           params <- dbg "params" (parens typeFields <?> "function arguments")
           lookAhead (space *> optional anySingle) >>= \case
             Just ':' -> do
@@ -460,6 +518,9 @@ module Parser where
       -- try (annotate (FunctionDec  <$>sepBy1 fundec space1))<|>
       -- try vardec
 
+    -- dropUntil :: Text -> Parser a
+    -- dropUntil kw = do 
+    --     withRecovery 
 
     exprtest1 :: Either (ParseErrorBundle T.Text ParserErrors) Exp
     exprtest1 = Text.Megaparsec.parse expr "" " (a+b) = c-d*(5+2)"
@@ -475,7 +536,7 @@ module Parser where
 
     dectest2 :: Either (ParseErrorBundle T.Text ParserErrors) [Dec]
     dectest2 = runParser (space *>  some dec) "" src3 --" type intlist = array of int    type strlist = array of string var any : any := any{any=0} var i := readint(any)"
-    
+
     functest :: Either (ParseErrorBundle T.Text ParserErrors) [Dec]
     functest = Text.Megaparsec.parse (space *>some dec) "" "var N := 8\
 \ type intArray = array of int\
@@ -532,7 +593,7 @@ module Parser where
 \ var N := 8\
 \ type intArray = array of int\
 \ var row := intArray [ N ] of 0\
-\ var col := intArray [ N ] of 0\
+\ var col  := intArray [ N ] of 0\
 \ var diagl := intArray [N+N-l] of 0 var diag2 := intArray [N+N-l] of 0\
 \ function printboard() = \
 \    (for i := 0 to N-l do \
