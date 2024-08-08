@@ -119,7 +119,7 @@ module Parser where
 
         escapeHandler :: Parser Char
         escapeHandler = do
-          void (dbg "\\consume" $ char '\\') -- consumes the '\' character
+          void (char '\\') -- consumes the '\' character
           lookAhead (optional anySingle) >>= \case
             Just 'n'  -> anySingle $> '\n'
             Just 't'  -> anySingle $> '\t'
@@ -427,7 +427,7 @@ module Parser where
       return $ RecField id False tyid
 
     typeFields :: Parser [RecField]
-    typeFields = dbg "type fields" $ sepBy typeField (symbol ",")
+    typeFields = inside "type fields" $ sepBy typeField (symbol ",")
 
 
     tydecs :: Parser Dec
@@ -504,7 +504,7 @@ module Parser where
           ) <* space
           where
             parseExp :: Parser Exp
-            parseExp = dbg "function body" $ do
+            parseExp = inside "function body" $ do
               void (space *> symbol "=")
               expr
 
