@@ -1,28 +1,28 @@
 module AST where
-    data Pos = Pos { line:: Int, col:: Int} deriving (Eq)
-    data Range = Range {start:: Pos, stop:: Pos} deriving (Eq)
+    data Pos = Pos { line:: Int, col:: Int} deriving (Ord, Eq)
+    data Range = Range {start:: Pos, stop:: Pos} deriving (Ord, Eq)
 
-    data Var = SimpleVar String Range | FieldVar Var String Range | SubscriptVar Var Exp Range deriving (Show)
+    data Var = SimpleVar String Range | FieldVar Var String Range | SubscriptVar Var Exp Range deriving (Ord, Eq, Show)
 
-    data Binop = Plus | Minus | Times | Divide | Eq | Neq | Lt | Le  | Gt | Ge | LAnd | LOr deriving (Show)
-    data Field = Field {name:: String, value:: Exp, range :: Range} deriving (Show)
+    data Binop = Plus | Minus | Times | Divide | Eq | Neq | Lt | Le  | Gt | Ge | LAnd | LOr deriving (Ord, Eq, Show)
+    data Field = Field {name:: String, value:: Exp, range :: Range} deriving (Ord, Eq, Show)
 
     -- data RecField = DecField String Bool String Range deriving (Show)
     -- instance Rangers DecField where
     --     getRange (DecField _ _ _ r) =r
 
-    data FunDec = FunDec {fname:: String, params:: [RecField], result :: Maybe String, body:: Exp, frange :: Range} deriving (Show)
-    data TypeD  = TypeD String Typ Range deriving (Show)
-    data Typ    = NameTy String Range | RecordTy [RecField] Range | ArrayTy String Range deriving (Show)
+    data FunDec = FunDec {fname:: String, params:: [RecField], result :: Maybe String, body:: Exp, frange :: Range} deriving (Ord, Eq, Show)
+    data TypeD  = TypeD String Typ Range deriving (Ord, Eq, Show)
+    data Typ    = NameTy String Range | RecordTy [RecField] Range | ArrayTy String Range deriving (Ord, Eq, Show)
 
     -- name, escaping, type, range
-    data RecField = RecField String Bool String Range  deriving (Show)
+    data RecField = RecField String Bool String Range  deriving (Ord, Eq, Show)
 
     data Dec =
         FunctionDec [FunDec] Range
         -- name, escaping, Maybe type, init, range
         | VarDec String Bool (Maybe String) Exp Range
-        | TypeDec [TypeD] Range  deriving (Show)
+        | TypeDec [TypeD] Range  deriving (Ord, Eq, Show)
 
     errorDec :: Range -> Dec
     errorDec = VarDec "error" False Nothing (NilExp (Range (Pos 0 0) (Pos 0 0)))
@@ -46,7 +46,7 @@ module AST where
         | BreakExp Range
         | LetExp [Dec] Exp Range
         -- type, size, init, range
-        | ArrayExp String Exp Exp Range deriving (Show)
+        | ArrayExp String Exp Exp Range deriving (Ord, Eq, Show)
 
     squash :: Exp -> Exp
     squash a@(SeqExp es r)
