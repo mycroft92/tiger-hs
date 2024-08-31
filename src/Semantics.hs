@@ -1,4 +1,4 @@
-module Types where
+module Semantics where
     -- These are semantics (unlike AST which models syntax)
     type Uniq = Int
 

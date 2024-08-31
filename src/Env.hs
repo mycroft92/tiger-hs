@@ -3,7 +3,7 @@ module Env where
     import Data.IORef ( IORef, modifyIORef', newIORef, readIORef )
     import Data.Map.Strict as Map ( Map, empty, lookup, insert, member)
     import AST (Exp (..))
-    import Types (Ty(..))
+    import Semantics (Ty(..))
     import Data.Map as M (foldrWithKey)
 
     data Env a = Env {
