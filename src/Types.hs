@@ -1,5 +1,6 @@
 module Types where
-    newtype Uniq = Int
+    -- These are semantics (unlike AST which models syntax)
+    type Uniq = Int
 
     data Ty = INT
         | STRING
@@ -7,4 +8,4 @@ module Types where
         | ARRAY Ty Uniq --- needs to be unique
         | NIL
         | UNIT
-        | NAME String (Maybe Ty)
+        | NAME String (Maybe Ty) deriving (Show)  -- Recursive types need the 'maybe' to be filled in later
