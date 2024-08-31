@@ -45,7 +45,9 @@ module Errors where
         | RuntimeError String
         | ParserError String
         | ScannerError ErrInfo
-        | InterpreterError String String  deriving (Show, Eq)
+        | InterpreterError String String
+        | TypeCheckError String
+        deriving (Show, Eq)
 
     data ParserErrors =
         TrivialWithLocation
@@ -91,29 +93,6 @@ module Errors where
                 Text.Megaparsec.fancyFailure (Set.map f xs)
             Right x ->
                 return x
-
-    -- inside' :: String -> Parser a -> Parser a
-    -- inside' location p = do
-    --         off <- getOffset
-    --         region (`f` off) p
-    --     where
-    --         f (Text.Megaparsec.TrivialError _ us es) o = FancyError o . Set.singleton . ErrorCustom $ TrivialWithLocation [location] us es
-    --         f (Text.Megaparsec.FancyError _ xs)      o = FancyError o (Set.map f' xs)
-    --         f' (ErrorFail msg) = ErrorCustom $
-    --                     FancyWithLocation [location] (ErrorFail msg)
-    --         f' (ErrorIndentation ord rlvl alvl) = ErrorCustom $
-    --                     FancyWithLocation [location] (ErrorIndentation ord rlvl alvl)
-    --         f' (ErrorCustom (TrivialWithLocation ps us es)) = ErrorCustom $
-    --                     TrivialWithLocation (location:ps) us es
-    --         f' (ErrorCustom (FancyWithLocation ps cs)) = ErrorCustom $
-    --                     FancyWithLocation (location:ps) cs
-
-            -- fancyFailure :: MonadParsec e s m => Set (ErrorFancy e) -- ^ Fancy error components
-            --     -> m a
-            -- fancyFailure xs = do
-            --     o <- getOffset
-            --     parseError (FancyError o xs)
-    --     -- showErrorComponent (NotValidExp e) = show   
 
     ifM :: Monad m => m Bool -> m a -> m a -> m a
     ifM bt m_t m_f = do

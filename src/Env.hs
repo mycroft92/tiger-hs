@@ -3,14 +3,17 @@ module Env where
     import Data.IORef ( IORef, modifyIORef', newIORef, readIORef )
     import Data.Map.Strict as Map ( Map, empty, lookup, insert, member)
     import AST (Exp (..))
-    import Semantics (Ty(..))
+    import Semantics (Ty(..), EnvEntry (..))
     import Data.Map as M (foldrWithKey)
 
     data Env a = Env {
         e_values  :: IORef (Map.Map String a),
         enclosing :: IORef (Maybe (Env a)) -- stack of envs, outermost env is nested the innermost
     }
+    
 
+    type ValueEnv = (Env EnvEntry) --- this env is a mapping from variables to their types
+    type TypeEnv  = (Env Ty)       --- this env is from types to types 
 
     printEnv :: Show a => Env a -> IO String
     printEnv e = do
