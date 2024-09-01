@@ -46,10 +46,10 @@ transExp venv tenv (SeqExp exps range)            = _transSequence venv tenv exp
 transExp venv tenv (AssignExp var exp range)      = _transAssignment venv tenv var exp range
 transExp venv tenv (IfExp cond then' else' range) = _transIfThenElse venv tenv cond then' else' range
 transExp venv tenv (WhileExp cond body range)     = _transWhile venv tenv cond body range
-transExp venv tenv (ForExp var escape lo hi body range) = _transFor venv tenv var escape lo hi body range
 transExp venv tenv (BreakExp range)               = _transBreak range
 transExp venv tenv (LetExp decs body range)       = _transLet venv tenv decs body range
 transExp venv tenv (ArrayExp typ size init range) = _transArrayCreation venv tenv typ size init range
+transExp venv tenv (ForExp var escape lo hi body range) = _transFor venv tenv var escape lo hi body range
 
 _checkArithOp               :: ExpTy -> ExpTy -> TypeChecker ExpTy
 _checkArithOp left right    = 
