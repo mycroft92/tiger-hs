@@ -114,8 +114,69 @@ _transLet ven ten decl exp r = transExp venv tenv exp
 _transArrayCreation         :: ValueEnv -> TypeEnv -> String -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
 _transArrayCreation         = undefined
 
-transDec                    :: ValueEnv -> TypeEnv -> AST.Dec -> (ValueEnv, TypeEnv)
-transDec venv tenv (VarDec name _ jt exp r) = undefined 
+transDec                    :: ValueEnv -> TypeEnv -> AST.Dec -> TypeChecker (ValueEnv, TypeEnv)
+transDec venv tenv (VarDec name escape jt exp r) = do
+    (_, expTy) <- transExp venv tenv exp
+    case jt of
+        Just typeName -> do
+            declaredTy <- case look tenv typeName of
+                Just t  -> return t
+                Nothing -> throwError $ TypeCheckError $ "Undefined type: " ++ typeName
+            if expTy == declaredTy
+                then return (enter venv name (VarEntry expTy), tenv)
+                else throwError $ TypeCheckError $ "Type mismatch in variable declaration: expected " ++ show declaredTy ++ ", but got " ++ show expTy
+        Nothing -> return (enter venv name (VarEntry expTy), tenv)
+
+transDec venv tenv (TypeDec typeDecs) = do
+    let addTypePlaceholder (env, names) (TypeD name _ _) = 
+            (enter env name (NAME name Nothing), name : names)
+    let (tenv', typeNames) = foldr addTypePlaceholder (tenv, []) typeDecs
+    
+    tenv'' <- foldM (\env (TypeD name ty _) -> do
+        actualType <- transTy env ty
+        return $ enter env name actualType) tenv' typeDecs
+    
+    -- Check for cycles in type declarations
+    forM_ typeNames $ \name -> do
+        cycleCheck tenv'' name []
+    
+    return (venv, tenv'')
+
+transDec venv tenv (FunctionDec funDecs) = do
+    let addFunHeader (venv', names) (FunDec name params resultTy _ _) = do
+            paramTys <- mapM (\(RecField _ _ typeName _) -> 
+                                case look tenv typeName of
+                                    Just t  -> return t
+                                    Nothing -> throwError $ TypeCheckError $ "Undefined parameter type: " ++ typeName) params
+            resTy <- case resultTy of
+                        Just tyName -> case look tenv tyName of
+                                        Just t  -> return t
+                                        Nothing -> throwError $ TypeCheckError $ "Undefined return type: " ++ tyName
+                        Nothing     -> return UNIT
+            return (enter venv' name (FunEntry paramTys resTy), name : names)
+    
+    (venv', funNames) <- foldM addFunHeader (venv, []) funDecs
+    
+    venv'' <- foldM (\venv (FunDec name params resultTy body _) -> do
+        let (FunEntry paramTys resultTy') = fromJust $ look venv' name
+        let addParam (env, i) (RecField paramName _ _ _) = 
+                (enter env paramName (VarEntry (paramTys !! i)), i + 1)
+        let (bodyVenv, _) = foldl addParam (venv', 0) params
+        (_, bodyTy) <- transExp bodyVenv tenv body
+        if bodyTy == resultTy'
+            then return venv
+            else throwError $ TypeCheckError $ "Function " ++ name ++ " body type mismatch: expected " ++ show resultTy' ++ ", but got " ++ show bodyTy
+        ) venv' funDecs
+    
+    return (venv'', tenv)
+
+-- Helper function to check for cycles in type declarations
+cycleCheck :: TypeEnv -> String -> [String] -> TypeChecker ()
+cycleCheck tenv name visited
+    | name `elem` visited = throwError $ TypeCheckError $ "Cyclic type declaration detected: " ++ unwords (reverse (name:visited))
+    | otherwise = case look tenv name of
+        Just (NAME _ (Just (NAME nextName _))) -> cycleCheck tenv nextName (name:visited)
+        _ -> return ()
 
 transTy                     :: TypeEnv -> AST.Typ -> Semantics.Ty
 transTy                     = undefined
