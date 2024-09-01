@@ -107,13 +107,15 @@ _transBreak                 :: Range -> TypeChecker ExpTy
 _transBreak                 = undefined
 
 _transLet                   :: ValueEnv -> TypeEnv -> [AST.Dec] -> AST.Exp -> Range -> TypeChecker ExpTy
-_transLet                   = undefined
+_transLet ven ten decl exp r = transExp venv tenv exp
+    where
+        (venv,tenv) = foldr (\d (v,t)-> transDec v t d) (ven,ten) decl 
 
 _transArrayCreation         :: ValueEnv -> TypeEnv -> String -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
 _transArrayCreation         = undefined
 
 transDec                    :: ValueEnv -> TypeEnv -> AST.Dec -> (ValueEnv, TypeEnv)
-transDec                    = undefined 
+transDec venv tenv (VarDec name _ jt exp r) = undefined 
 
 transTy                     :: TypeEnv -> AST.Typ -> Semantics.Ty
 transTy                     = undefined
