@@ -1,6 +1,6 @@
 module TypeChecking where
 
-import Env  -- ValueEnv, TypeEvnv
+import Env  -- ValueEnv, TypeEnv
 import Semantics
 import AST
 import Translate 
@@ -115,15 +115,23 @@ _transArrayCreation venv tenv typeName sizeExp initExp range = undefined
 
 transDec            :: ValueEnv -> TypeEnv -> AST.Dec -> TypeChecker (ValueEnv, TypeEnv)
 transDec venv tenv (VarDec name escape (Just typ) exp range) = undefined
-    {-(_,expty) <- transExp venv tenv exp-}
-    {-ifM -}
 transDec venv tenv (VarDec name escape Nothing exp range)    = do
     (_,expty) <- transExp venv tenv exp
     let venv' = enter venv name (VarEntry expty) in
         return (venv', tenv)
-transDec venv tenv (TypeDec typeDecs range)                  = undefined
-transDec venv tenv (FunctionDec funDecs range)               = undefined
-    
+transDec venv tenv (TypeDec typeDecs range) = do
+    tenv' <- foldrM (\(TypeD name _ _) tenv'-> 
+        return $ enter tenv' name (NAME name Nothing)) tenv typeDecs
+    foldrM (\typeD (_,tenv'') -> transTypeD venv tenv'' typeD) (venv, tenv') typeDecs
+transDec venv tenv (FunctionDec funDecs range) = undefined
+
+transTypeD :: ValueEnv -> TypeEnv -> TypeD -> TypeChecker (ValueEnv, TypeEnv)
+transTypeD venv tenv (TypeD name typ range) = do
+    actualType <- transTy tenv typ
+    let newTenv = enter tenv name actualType
+    cycleCheck newTenv name []
+    return (venv, newTenv)
+
 cycleCheck          :: TypeEnv -> String -> [String] -> TypeChecker ()
 cycleCheck tenv name visited
     | name `elem` visited = Left $ TypeCheckError $ "Cyclic type declaration detected: " ++ unwords (reverse (name:visited))
@@ -131,8 +139,18 @@ cycleCheck tenv name visited
         Just (NAME _ (Just (NAME nextName _))) -> cycleCheck tenv nextName (name:visited)
         _ -> return ()
 
-transTy             :: TypeEnv -> AST.Typ -> Semantics.Ty
-transTy tenv (NameTy name r)     = undefined
-transTy tenv (RecordTy fields r) = undefined
-transTy tenv (ArrayTy name r)    = undefined
-
+transTy             :: TypeEnv -> AST.Typ -> TypeChecker Semantics.Ty
+transTy tenv (NameTy name r) = 
+    case look tenv name of
+        Just t  -> return t
+        Nothing -> Left $ TypeCheckError $ "Undefined type: " ++ name
+transTy tenv (RecordTy fields r) = do
+    fieldTypes <- mapM (\(RecField name _ typeName _) -> 
+        case look tenv typeName of
+            Just t  -> return (name, t)
+            Nothing -> Left $ TypeCheckError $ "Undefined type in record field: " ++ typeName) fields
+    return $ REC fieldTypes (length fieldTypes)  -- Using length as a simple unique ID
+transTy tenv (ArrayTy name r) = 
+    case look tenv name of
+        Just t  -> return $ ARRAY t (length $ show t)  -- Using length of show t as a simple unique ID
+        Nothing -> Left $ TypeCheckError $ "Undefined array element type: " ++ name
