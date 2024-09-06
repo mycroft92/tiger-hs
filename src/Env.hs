@@ -7,7 +7,7 @@ import Data.Map as M (foldrWithKey)
 
 type Env a    = (Map.Map String a)
 type ValueEnv = (Env EnvEntry) -- this env is a mapping from variables to their types
-type TypeEnv  = (Env Ty)       -- this env is from types to types 
+type TypeEnv  = (Env Ty)       -- this env is from types to types
 
 printEnv :: Show a => Env a -> IO ()
 printEnv env = M.foldrWithKey printEntry (return ()) env
@@ -18,6 +18,9 @@ printEnv env = M.foldrWithKey printEntry (return ()) env
 
 emptyEnv :: Env a
 emptyEnv = Map.empty
+
+addKey :: Env (Maybe a) -> String -> Env (Maybe a)
+addKey env k = Map.insert k Nothing env
 
 enter :: Env a -> String -> a -> Env a
 enter env k v = Map.insert k v env 

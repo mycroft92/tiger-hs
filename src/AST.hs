@@ -1,3 +1,4 @@
+{-# LANGUAGE StrictData #-}
 module AST where
 data Pos = Pos { line:: Int, col:: Int} deriving (Ord, Eq)
 data Range = Range {start:: Pos, stop:: Pos} deriving (Ord, Eq)
@@ -11,7 +12,7 @@ data Field = Field {name:: String, value:: Exp, range :: Range} deriving (Ord, E
 -- instance Rangers DecField where
 --     getRange (DecField _ _ _ r) =r
 
-data FunDec = FunDec {fname:: String, params:: [RecField], result :: Maybe String, body:: Exp, frange :: Range} deriving (Ord, Eq, Show)
+data FunDec = FunDec {fname:: String, fparams:: [RecField], fresult :: Maybe String, fbody:: Exp, frange :: Range} deriving (Ord, Eq, Show)
 data TypeD  = TypeD String Typ Range deriving (Ord, Eq, Show)
 data Typ    = NameTy String Range | RecordTy [RecField] Range | ArrayTy String Range deriving (Ord, Eq, Show)
 
