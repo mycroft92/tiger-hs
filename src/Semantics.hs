@@ -10,6 +10,7 @@ data Ty = INT
     | UNIT
     | NAME String (Maybe Ty) deriving (Show, Eq, Ord)  -- Recursive types need the 'maybe' to be filled in later
 
+--findField :: 
 
 data EnvEntry 
     = VarEntry 
