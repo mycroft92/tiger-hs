@@ -1,16 +1,21 @@
-module TypeChecking where
-
+module TypeChecking (runTypeChecker) where
 import Env  -- ValueEnv, TypeEnv
 import Semantics
 import AST
 import Translate 
 import Errors (Errors(TypeCheckError))
 import Data.Foldable (foldrM)
-import Control.Monad.State (StateT(runStateT),
-      MonadIO(liftIO),
-      MonadState(get,put),
-      MonadTrans(lift))
+{-import Control.Monad.State (StateT(runStateT),-}
+      {-MonadIO(liftIO),-}
+      {-MonadState(get,put),-}
+      {-MonadTrans(lift))-}
+import Control.Monad.State (State, 
+    runState,
+    MonadState(get,put),
+    MonadTrans(lift))
 import Control.Monad.Except (ExceptT(..), runExceptT, throwError, catchError)
+import Control.Monad (forM)
+import Data.Bits (Bits(xor))
 
 -- type ExpTy            = (Translate.Exp, Semantics.Ty)
 type ExpTy            = Semantics.Ty
@@ -21,7 +26,7 @@ data TypeCheckerState = TypeCheckerState {
       breakNest :: Int
     } deriving Show
 
-type TypeChecker a    = ExceptT Errors (StateT TypeCheckerState IO) a
+type TypeChecker a    = ExceptT Errors (State TypeCheckerState) a
 
 _checkInt             :: ExpTy -> Bool
 _checkInt INT   = True
@@ -61,7 +66,13 @@ _breakDown = do
 _breakCheck :: TypeChecker Bool
 _breakCheck = do
     st <- lift get
-    if (breakNest st <= 0) then return False else return True 
+    if (breakNest st <= 0) then return False else return True
+
+runTypeChecker :: AST.Exp -> Either [Errors] ExpTy
+runTypeChecker exp = 
+    case runState (runExceptT (typeCheckExp emptyEnv emptyEnv exp)) _initState of
+      (Left err,  TypeCheckerState errors _ _)   -> Left $ reverse (err:errors)
+      (Right expty, TypeCheckerState errors _ _) -> if length errors > 0 then Left (reverse errors) else Right expty
 
 typeCheckExp          :: ValueEnv -> TypeEnv -> AST.Exp -> TypeChecker ExpTy
 typeCheckExp venv tenv (VarExp var)                   = typeCheckVar venv tenv var
@@ -146,7 +157,19 @@ typeCheckVar venv tenv (SubscriptVar var index range) = do
         _ -> throwError $ TypeCheckError $ "Trying to index a non-array type at: " ++ show range 
 
 _typeCheckFunctionCall :: ValueEnv -> TypeEnv -> String -> [AST.Exp] -> Range -> TypeChecker ExpTy
-_typeCheckFunctionCall venv tenv funcName args range = undefined
+_typeCheckFunctionCall venv tenv funcName args range = 
+    case look venv funcName of
+      Just (FunEntry formals result) -> 
+          if length formals == length args then 
+            mapM_ checkArg (zip args formals) >> return result
+          else throwError $ TypeCheckError $ "Function call: "++funcName++" at: "++ show range++ " has arity: "++show (length formals) ++ " received: "++ show (length args)
+      Just _  -> throwError $ TypeCheckError $ "Identifier: "++funcName ++ " at: "++ show range ++ " is not a function!"
+      Nothing -> throwError $ TypeCheckError $ "Function" ++ funcName ++ " at: "++show range ++ " is not defined!"
+    where
+      checkArg :: (AST.Exp,Semantics.Ty) -> TypeChecker ()
+      checkArg (exp, formal) = do
+          expty <- typeCheckExp venv tenv exp
+          if expty == formal then return () else throwError $ TypeCheckError $ "In function call: "++funcName++" at: "++ show range++ " arg: "++show exp ++ " expected to have: "++ show formal++ " but has:"++show expty
 
 _typeCheckUnaryOp     :: ValueEnv -> TypeEnv -> AST.Exp -> Range -> TypeChecker ExpTy
 _typeCheckUnaryOp venv tenv exp range = do
@@ -158,28 +181,83 @@ _typeCheckUnaryOp venv tenv exp range = do
 _typeCheckRecordCreation :: ValueEnv -> TypeEnv -> String -> [Field] -> Range -> TypeChecker ExpTy
 _typeCheckRecordCreation venv tenv tyId fields range = 
     case look tenv tyId of
-      Just (REC paramList _) -> do
-
+      Just rty@(REC paramList _) -> 
+         -- Check that all fields of the record are present 
+         if verifyFields paramList fields then
+            mapM (\(Field name value range) -> 
+                case findField paramList name of
+                  Just ty -> do
+                      fty <- typeCheckExp venv tenv value
+                      if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
+                  Nothing -> throwError (TypeCheckError $ "Record Type: "++ tyId ++ " at: "++show range ++" has no field named: "++name)) fields >> return rty
+         else throwError $ TypeCheckError $ "Record Type initialization: "++ tyId ++ " at: "++show range ++" doesnot have all the fields. Expected: "++ concatMap show paramList
       _ -> throwError $ TypeCheckError $ "Type: "++ tyId ++ " at: "++show range ++" is not a valid record type."
+    where
+        verifyFields :: [(String,Semantics.Ty)] -> [Field] -> Bool
+        verifyFields ps fs = foldr (\(Field name _ _) acc -> acc && memField ps name) True fs 
       
 
 _typeCheckSequence    :: ValueEnv -> TypeEnv -> [AST.Exp] -> Range -> TypeChecker ExpTy
-_typeCheckSequence venv tenv exps range = undefined
+_typeCheckSequence venv tenv exps range = 
+    listLast <$> mapM (\exp -> typeCheckExp venv tenv exp) exps
+      where 
+            listLast [x] = x
+            listLast (_:xs) = listLast xs
+            listLast [] = NIL
 
 _typeCheckAssignment  :: ValueEnv -> TypeEnv -> AST.Var -> AST.Exp -> Range -> TypeChecker ExpTy
-_typeCheckAssignment venv tenv var exp range = undefined
+_typeCheckAssignment venv tenv var exp range = do
+    varTy <- typeCheckVar venv tenv var
+    expTy <- typeCheckExp venv tenv exp
+    if varTy == expTy
+        then return expTy
+        else throwError $ TypeCheckError $ "Type mismatch in assignment at " ++ show range ++ ": variable has type " ++ show varTy ++ ", but expression has type " ++ show expTy
 
 _typeCheckIfThenElse  :: ValueEnv -> TypeEnv -> AST.Exp -> AST.Exp -> Maybe AST.Exp -> Range -> TypeChecker ExpTy
-_typeCheckIfThenElse venv tenv condExp thenExp elseExp range = undefined
+_typeCheckIfThenElse venv tenv condExp thenExp elseExp range = do
+    condTy <- typeCheckExp venv tenv condExp
+    if not (_checkInt condTy)
+        then throwError $ TypeCheckError $ "Condition in if-then-else must be of type INT at " ++ show range
+        else do
+            thenTy <- typeCheckExp venv tenv thenExp
+            case elseExp of
+                Just elseE -> do
+                    elseTy <- typeCheckExp venv tenv elseE
+                    if thenTy == elseTy
+                        then return thenTy
+                        else throwError $ TypeCheckError $ "Types in then and else branches must match at " ++ show range
+                Nothing -> return thenTy
 
 _typeCheckWhile       :: ValueEnv -> TypeEnv -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
-_typeCheckWhile venv tenv condExp bodyExp range = undefined
+_typeCheckWhile venv tenv condExp bodyExp range = do
+    condTy <- typeCheckExp venv tenv condExp
+    if not (_checkInt condTy)
+        then throwError $ TypeCheckError $ "Condition in while loop must be of type INT at " ++ show range
+        else do
+            _breakUp
+            bodyTy <- typeCheckExp venv tenv bodyExp
+            _breakDown
+            return bodyTy
 
 _typeCheckFor         :: ValueEnv -> TypeEnv -> String -> Bool -> AST.Exp -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
-_typeCheckFor venv tenv varName escape loExp hiExp bodyExp range = undefined
+_typeCheckFor venv tenv varName escape loExp hiExp bodyExp range = do
+    loTy <- typeCheckExp venv tenv loExp
+    hiTy <- typeCheckExp venv tenv hiExp
+    if not (_checkInt loTy && _checkInt hiTy)
+        then throwError $ TypeCheckError $ "Loop bounds must be of type INT at " ++ show range
+        else do
+            let venv' = enter venv varName (VarEntry INT)
+            _breakUp
+            bodyTy <- typeCheckExp venv' tenv bodyExp
+            _breakDown
+            return bodyTy
 
 _typeCheckBreak       :: Range -> TypeChecker ExpTy
-_typeCheckBreak range = undefined
+_typeCheckBreak range = do
+    isInLoop <- _breakCheck
+    if isInLoop
+        then return NIL
+        else throwError $ TypeCheckError $ "Break statement outside of loop at " ++ show range
 
 _typeCheckLet         :: ValueEnv -> TypeEnv -> [AST.Dec] -> AST.Exp -> Range -> TypeChecker ExpTy
 _typeCheckLet ven ten decl exp _ = do
@@ -187,7 +265,18 @@ _typeCheckLet ven ten decl exp _ = do
     typeCheckExp venv tenv exp
 
 _typeCheckArrayCreation :: ValueEnv -> TypeEnv -> String -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
-_typeCheckArrayCreation venv tenv typeName sizeExp initExp range = undefined
+_typeCheckArrayCreation venv tenv typeName sizeExp initExp range = do
+    case look tenv typeName of
+        Just (ARRAY elemTy _) -> do
+            sizeTy <- typeCheckExp venv tenv sizeExp
+            initTy <- typeCheckExp venv tenv initExp
+            if not (_checkInt sizeTy)
+                then throwError $ TypeCheckError $ "Array size must be of type INT at " ++ show range
+                else if initTy /= elemTy
+                    then throwError $ TypeCheckError $ "Array initialization type mismatch at " ++ show range
+                    else return $ ARRAY elemTy (length $ show elemTy)
+        Just _ -> throwError $ TypeCheckError $ "Type " ++ typeName ++ " is not an array type at " ++ show range
+        Nothing -> throwError $ TypeCheckError $ "Undefined type " ++ typeName ++ " at " ++ show range
 
 typeCheckDec          :: ValueEnv -> TypeEnv -> AST.Dec -> TypeChecker (ValueEnv, TypeEnv)
 typeCheckDec venv tenv (VarDec name escape (Just typ) exp range) = do
@@ -245,13 +334,16 @@ typeCheckTy tenv (NameTy name r) =
     case look tenv name of
         Just t  -> return t
         Nothing -> throwError $ TypeCheckError $ "Undefined type: " ++ name
-typeCheckTy tenv (RecordTy fields r) = do
+typeCheckTy tenv rec@(RecordTy fields r) = do
     fieldTypes <- mapM (\(RecField name _ typeName range) -> 
         case look tenv typeName of
             Just t  -> return (name, t)
             Nothing -> throwError $ TypeCheckError $ "Undefined type in record field: " ++ typeName ++ " " ++ show range) fields
     --Check for duplicate entries in record
-    return $ REC fieldTypes (length fieldTypes)
+    if checkNoDuplicates fieldTypes then 
+        return $ REC fieldTypes (length fieldTypes)
+    else
+        throwError $ TypeCheckError $ "Duplicate field names within the record: "++ show rec
 typeCheckTy tenv (ArrayTy name r) = 
     case look tenv name of
         Just t  -> return $ ARRAY t (length $ show t)
