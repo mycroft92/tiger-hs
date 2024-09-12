@@ -25,7 +25,14 @@ dependencies:
 - text
 - mtl
 - parser-combinators
+- array
 - containers
+- bytestring
+- cond
+
+build-tool-depends:
+  - alex
+  - happy
 
 ghc-options:
 - -Wall
