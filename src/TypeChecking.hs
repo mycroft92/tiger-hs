@@ -70,7 +70,7 @@ _breakCheck = do
 
 runTypeChecker :: AST.Exp -> Either [Errors] ExpTy
 runTypeChecker exp = 
-    case runState (runExceptT (typeCheckExp emptyEnv emptyEnv exp)) _initState of
+    case runState (runExceptT (typeCheckExp emptyEnv emptyTypeEnv exp)) _initState of
       (Left err,  TypeCheckerState errors _ _)   -> Left $ reverse (err:errors)
       (Right expty, TypeCheckerState errors _ _) -> if length errors > 0 then Left (reverse errors) else Right expty
 

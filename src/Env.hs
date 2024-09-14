@@ -1,6 +1,6 @@
 module Env where
 
-import Data.Map.Strict as Map (Map, empty, lookup, insert, member)
+import Data.Map.Strict as Map (Map, empty, lookup, insert, member, fromList)
 import AST (Exp (..))
 import Semantics (Ty(..), EnvEntry (..))
 import Data.Map as M (foldrWithKey)
@@ -18,6 +18,9 @@ printEnv env = M.foldrWithKey printEntry (return ()) env
 
 emptyEnv :: Env a
 emptyEnv = Map.empty
+
+emptyTypeEnv :: TypeEnv
+emptyTypeEnv = Map.fromList [("int",INT), ("string", STRING), ("nil",NIL)]
 
 addKey :: Env (Maybe a) -> String -> Env (Maybe a)
 addKey env k = Map.insert k Nothing env
