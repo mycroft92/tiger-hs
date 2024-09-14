@@ -1,7 +1,7 @@
 module TokenTypes (
     Token (..)
 )where
-import AST (Exp(ForExp), Var)
+import AST (Exp(ForExp, AssignExp), Var)
 import Data.Array (Array)
 import GHC.RTS.Flags (DoCostCentres)
 import Data.Sequence.Internal.Sorting (QList(Nil))
@@ -46,6 +46,8 @@ data Token
   -- Logical operators
   | And
   | Or
+  -- Assign
+  | Assign
   -- Parenthesis
   | LPar
   | RPar

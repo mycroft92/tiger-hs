@@ -49,6 +49,7 @@ import Errors
   '-'        { L.RangedToken T.Minus _ }
   '*'        { L.RangedToken T.Times _ }
   '/'        { L.RangedToken T.Divide _ }
+  ':='       { L.RangedToken T.Assign _}
   -- Comparison operators
   '='        { L.RangedToken T.Eq _ }
   '<>'       { L.RangedToken T.Neq _ }
@@ -109,6 +110,10 @@ tydec
 tydecs
   : some(tydec)  { $1}
 
+vardec
+  : var identifier ':=' exp {}
+  | var identifier ':' identifier ':=' exp {}
+
 dec
   : tydecs  {}
   | vardec  {}
@@ -119,6 +124,7 @@ decs
 
 exp :: {A.Exp}
     : integer { unTok $1 (\rng (T.Integer int) -> A.IntExp int (range rng))}
+
 
 
 {

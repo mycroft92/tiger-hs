@@ -77,6 +77,7 @@ tokens :-
 <0> "-"     {tok Minus}
 <0> "*"     {tok Times}
 <0> "/"     {tok Divide}
+<0> ":="    {tok Assign}
 
 -- Comparison operators
 <0> "="     {tok Eq}
