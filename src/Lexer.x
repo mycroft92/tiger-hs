@@ -93,6 +93,8 @@ tokens :-
 -- Parenthesis
 <0> "("     {tok LPar}
 <0> ")"     {tok RPar}
+<0> "{"     {tok LBrace}
+<0> "}"     {tok RBrace}
 
 -- Lists
 <0> "["     {tok LBrack}

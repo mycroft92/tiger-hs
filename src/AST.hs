@@ -68,6 +68,14 @@ squash (ForExp s b c e1 e2 r) = ForExp s b (squash c) (squash e1) (squash e2) r
 squash a@(BreakExp {})        = a
 squash (LetExp ds e r)        = LetExp ds (squash e) r
 squash (ArrayExp s e1 e2 r)   = ArrayExp s (squash e1) (squash e2) r
+
+(<<->>) :: Range -> Range -> Range
+(Range start _) <<->> (Range _ stop) = Range start stop
+
+{-squashDec :: [Dec] -> [Dec]-}
+{-squashDec [] = []-}
+{-squashDec [x] = [x]-}
+{-squashDec (FunctionDec fs r1: -}
         
 
 instance Show Pos where

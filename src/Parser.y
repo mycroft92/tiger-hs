@@ -1,7 +1,7 @@
 {
-
+{-# LANGUAGE DeriveFoldable #-}
 module Parser
-  ( parseMiniML
+  ( parse
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -9,12 +9,13 @@ import Data.Maybe (fromJust)
 import Data.Monoid (First (..))
 
 import qualified Lexer as L
+import qualified AST as A
 import qualified TokenTypes as T
 import Errors 
 
 }
 
-%name parseMiniML
+%name parse exp
 %tokentype { L.RangedToken }
 %error { parseError }
 %monad { L.Alex } { >>= } { pure }
@@ -61,6 +62,8 @@ import Errors
   -- Parenthesis
   '('        { L.RangedToken T.LPar _ }
   ')'        { L.RangedToken T.RPar _ }
+  '{'        { L.RangedToken T.LBrace _} 
+  '}'        { L.RangedToken T.RBrace _} 
   -- Lists
   '['        { L.RangedToken T.LBrack _ }
   ']'        { L.RangedToken T.RBrack _ }
@@ -71,10 +74,77 @@ import Errors
 
 %%
 
+-- some helper rules
+many_rev(p)
+  :               { [] }
+  | many_rev(p) p { $2 : $1 }
+
+many(p)
+  : many_rev(p) { reverse $1 }
+
+some_rev(p)
+  : p             {[$1]}
+  | some_rev(p) p {$2:$1}
+ 
+some(p)
+  : some_rev(p)   {reverse $1}
+
+optional(p)
+  :   { Nothing }
+  | p { Just $1 }
+
+tyfields
+  :                           {}
+  | identifier ':' identifier {}
+  | tyfields ',' identifier ':' identifier {}
+
+ty
+  : identifier          {}
+  | '{' tyfields '}'    {}
+  | array of identifier {}
+
+tydec
+  : type identifier '=' ty {}
+ 
+tydecs
+  : some(tydec)  { $1}
+
 dec
-  : let identifier '=' integer {}  
+  : tydecs  {}
+  | vardec  {}
+  | fundecs {}
+
+decs
+  : many(dec) {$1}
+
+exp :: {A.Exp}
+    : integer { unTok $1 (\rng (T.Integer int) -> A.IntExp int (range rng))}
+
 
 {
+
+unTok :: L.RangedToken -> (L.Range -> T.Token -> a) -> a
+unTok (L.RangedToken tok rng) ctor = ctor rng tok
+
+-- | Unsafely extracts the the metainformation field of a node.
+info :: Foldable f => f a -> a
+info = fromJust . getFirst . foldMap pure
+
+-- | Performs the union of two ranges by creating a new range starting at the
+-- start position of the first range, and stopping at the stop position of the
+-- second range.
+-- Invariant: The LHS range starts before the RHS range.
+(<->) :: L.Range -> L.Range -> A.Range
+L.Range a1 _ <-> L.Range _ b2 = range (L.Range a1 b2)
+
+
+range :: L.Range -> A.Range
+range r@(L.Range start stop) = A.Range {A.start = start', A.stop = stop'}
+    where
+        posc  (L.AlexPn a l c) = A.Pos l c
+        start' = posc start
+        stop'  = posc stop
+
 data ParserState = ParserState { errorList :: [Errors]}
 
 parseError :: L.RangedToken -> L.Alex a

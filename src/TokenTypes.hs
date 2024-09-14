@@ -12,7 +12,7 @@ data Token
   = Identifier String
   -- Constants
   | String String
-  | Integer Integer
+  | Integer Int
   -- Keywords
   | Let
   | In
