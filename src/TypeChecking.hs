@@ -322,6 +322,7 @@ typeCheckTypeD venv tenv (TypeD name typ range) = do
     cycleCheck newTenv name [] range
     return (venv, newTenv)
 
+-- This is a much more liberal cycle check, in that it allows typealiases as long as there's no cycle
 cycleCheck            :: TypeEnv -> String -> [String] -> Range -> TypeChecker ()
 cycleCheck tenv name visited range
     | name `elem` visited = throwError $ TypeCheckError $ "Cyclic type declaration detected: " ++ show range ++ ": " ++ unwords (reverse (name:visited))
@@ -341,12 +342,12 @@ typeCheckTy tenv rec@(RecordTy fields r) = do
             Nothing -> throwError $ TypeCheckError $ "Undefined type in record field: " ++ typeName ++ " " ++ show range) fields
     --Check for duplicate entries in record
     if checkNoDuplicates fieldTypes then 
-        return $ REC fieldTypes (length fieldTypes)
+        REC fieldTypes <$> _getUniq
     else
         throwError $ TypeCheckError $ "Duplicate field names within the record: "++ show rec
 typeCheckTy tenv (ArrayTy name r) = 
     case look tenv name of
-        Just t  -> return $ ARRAY t (length $ show t)
+        Just t  -> ARRAY t <$> _getUniq
         Nothing -> throwError $ TypeCheckError $ "Undefined array element type: " ++ name ++ " " ++ show r
  
 _generateFunType      :: TypeEnv -> ValueEnv -> FunDec -> TypeChecker ValueEnv
@@ -354,7 +355,7 @@ _generateFunType tenv venv (FunDec{fname=fn, fparams=ps, fresult=res, fbody=body
     case res of
       -- There is a return statement
       Just ty -> do
-          case (look tenv ty) of
+          case look tenv ty of
             Nothing -> throwError $ TypeCheckError $ "undefined return type: "++ ty ++" in fn: "++fn++" "++show rng
             Just rt -> do
                 -- find the param types

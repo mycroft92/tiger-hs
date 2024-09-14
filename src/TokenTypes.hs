@@ -49,6 +49,8 @@ data Token
   -- Parenthesis
   | LPar
   | RPar
+  | LBrace
+  | RBrace
   -- Lists
   | Comma
   | LBrack
