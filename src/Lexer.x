@@ -79,6 +79,7 @@ tokens :-
 <0> "/"     {tok Divide}
 <0> ":="    {tok Assign}
 <0> "."     {tok Dot}
+<0> ";"     {tok Semi}
 
 -- Comparison operators
 <0> "="     {tok Eq}

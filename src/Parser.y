@@ -52,6 +52,7 @@ import Errors
   '/'        { L.RangedToken T.Divide _ }
   ':='       { L.RangedToken T.Assign _}
   '.'        { L.RangedToken T.Dot _}
+  ';'        { L.RangedToken T.Semi _}
   -- Comparison operators
   '='        { L.RangedToken T.Eq _ }
   '<>'       { L.RangedToken T.Neq _ }
@@ -74,6 +75,14 @@ import Errors
   -- Types
   ':'        { L.RangedToken T.Colon _ }
   '->'       { L.RangedToken T.Arrow _ }
+
+%right '->'
+%nonassoc '=' '<>' '<' '>' '<=' '>=' ':='
+%left '|'
+%left '&'
+%left '+' '-'
+%left '*' '/'
+
 
 %%
 
@@ -141,12 +150,34 @@ commaExps :: {[A.Exp]}
     | exp    {[$1]}
     | commaExps ',' exp {$3:$1} -- needs to reversed at use site
 
+seqExps :: {[A.Exp]}
+    : exp   {[$1]}
+    | seqExps ';' exp {$3:$1}
+
+binop 
+    : '*'  {A.Times}
+    | '/'  {A.Divide}
+    | '-'  {A.Minus}
+    | '+'  {A.Plus}
+    | '='  {A.Eq}
+    | '<>' {A.Neq}
+    | '<'  {A.Lt}
+    | '>'  {A.Gt}
+    | '<=' {A.Le}
+    | '>=' {A.Ge}
+    | '&'  {A.LAnd}
+    | '|'  {A.LOr}
+
+
 exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
     | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval    {A.VarExp $1}
+    | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
+    | exp binop exp {A.BinopExp $1 $2 $3 ($1<<->>$3)}
+    | '-' exp       {A.UnopExp $2 ($1 <->>$2)}
     
 
 

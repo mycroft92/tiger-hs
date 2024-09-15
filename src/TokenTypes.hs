@@ -49,6 +49,7 @@ data Token
   | Or
   -- Assign
   | Assign
+  | Semi
   -- Parenthesis
   | LPar
   | RPar
