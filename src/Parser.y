@@ -136,10 +136,17 @@ lval :: {A.Var}
   | lval '.' identifier {unTok $3 (\rng (T.Identifier n)-> A.FieldVar $1 n ($1 <<-> $3)) }
   | lval '[' exp ']'    {A.SubscriptVar $1 $3 ($1 <<-> $4)}
 
+commaExps :: {[A.Exp]}
+    :        {[]}
+    | exp    {[$1]}
+    | commaExps ',' exp {$3:$1} -- needs to reversed at use site
+
 exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
+    | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
+    | lval    {A.VarExp $1}
     
 
 
@@ -157,12 +164,18 @@ info = fromJust . getFirst . foldMap pure
 -- start position of the first range, and stopping at the stop position of the
 -- second range.
 -- Invariant: The LHS range starts before the RHS range.
-(<->) :: L.Range -> L.Range -> A.Range
-L.Range a1 _ <-> L.Range _ b2 = range (L.Range a1 b2)
+(<=>) :: L.Range -> L.Range -> A.Range
+L.Range a1 _ <=> L.Range _ b2 = range (L.Range a1 b2)
+
+(<->) :: L.RangedToken -> L.RangedToken -> A.Range
+L.RangedToken _ (L.Range a1 _)  <-> L.RangedToken _ (L.Range _ b2)  = range (L.Range a1 b2)
+
 
 (<<->) :: A.Rangers a => a -> L.RangedToken -> A.Range
 a <<-> (L.RangedToken _ rng) = (A.getRange a) <<->> (range rng)
 
+(<->>) :: A.Rangers a => L.RangedToken -> a -> A.Range
+(L.RangedToken _ rng) <->> a = (range rng) <<->> (A.getRange a)
 
 range :: L.Range -> A.Range
 range r@(L.Range start stop) = A.Range {A.start = start', A.stop = stop'}
