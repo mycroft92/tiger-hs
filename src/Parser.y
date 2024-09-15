@@ -10,6 +10,7 @@ import Data.Monoid (First (..))
 
 import qualified Lexer as L
 import qualified AST as A
+import AST((<<->>))
 import qualified TokenTypes as T
 import Errors 
 
@@ -50,6 +51,7 @@ import Errors
   '*'        { L.RangedToken T.Times _ }
   '/'        { L.RangedToken T.Divide _ }
   ':='       { L.RangedToken T.Assign _}
+  '.'        { L.RangedToken T.Dot _}
   -- Comparison operators
   '='        { L.RangedToken T.Eq _ }
   '<>'       { L.RangedToken T.Neq _ }
@@ -114,6 +116,13 @@ vardec
   : var identifier ':=' exp {}
   | var identifier ':' identifier ':=' exp {}
 
+fundec
+  : function identifier '(' tyfields ')' '=' exp {}
+  | function identifier '(' tyfields ')' ':' identifier '=' exp {}
+
+fundecs
+  : some(fundec) {$1}
+
 dec
   : tydecs  {}
   | vardec  {}
@@ -122,15 +131,23 @@ dec
 decs
   : many(dec) {$1}
 
+lval :: {A.Var}
+  : identifier          {unTok $1 (\rng (T.Identifier n)-> A.SimpleVar n rng) }
+  | lval '.' identifier {unTok $3 (\rng (T.Identifier n)-> A.FieldVar $1 n ($1 <<-> $3)) }
+  | lval '[' exp ']'    {A.SubscriptVar $1 $3 ($1 <<-> $4)}
+
 exp :: {A.Exp}
-    : integer { unTok $1 (\rng (T.Integer int) -> A.IntExp int (range rng))}
+    : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
+    | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
+    | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
+    
 
 
 
 {
 
-unTok :: L.RangedToken -> (L.Range -> T.Token -> a) -> a
-unTok (L.RangedToken tok rng) ctor = ctor rng tok
+unTok :: L.RangedToken -> (A.Range -> T.Token -> a) -> a
+unTok (L.RangedToken tok rng) ctor = ctor (range rng) tok
 
 -- | Unsafely extracts the the metainformation field of a node.
 info :: Foldable f => f a -> a
@@ -142,6 +159,9 @@ info = fromJust . getFirst . foldMap pure
 -- Invariant: The LHS range starts before the RHS range.
 (<->) :: L.Range -> L.Range -> A.Range
 L.Range a1 _ <-> L.Range _ b2 = range (L.Range a1 b2)
+
+(<<->) :: A.Rangers a => a -> L.RangedToken -> A.Range
+a <<-> (L.RangedToken _ rng) = (A.getRange a) <<->> (range rng)
 
 
 range :: L.Range -> A.Range

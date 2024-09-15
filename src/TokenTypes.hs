@@ -36,6 +36,7 @@ data Token
   | Minus
   | Times
   | Divide
+  | Dot
   -- Comparison operators
   | Eq
   | Neq

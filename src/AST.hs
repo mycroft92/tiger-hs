@@ -69,8 +69,8 @@ squash a@(BreakExp {})        = a
 squash (LetExp ds e r)        = LetExp ds (squash e) r
 squash (ArrayExp s e1 e2 r)   = ArrayExp s (squash e1) (squash e2) r
 
-(<<->>) :: Range -> Range -> Range
-(Range start _) <<->> (Range _ stop) = Range start stop
+--(<<->>) :: Range -> Range -> Range
+--(Range start _) <<->> (Range _ stop) = Range start stop
 
 {-squashDec :: [Dec] -> [Dec]-}
 {-squashDec [] = []-}
@@ -90,7 +90,15 @@ class Rangers c where
     getEnd c = stop $ getRange c
     getStart :: c -> Pos
     getStart c = start $ getRange c
+    (<<->>) :: Rangers b => c -> b -> Range
+    a <<->> b = extract (getRange a) (getRange b)
+        where
+            extract :: Range -> Range -> Range
+            extract (Range start _) (Range _ stop) = (Range start stop)
     {-# MINIMAL getRange #-}
+
+instance Rangers Range where
+    getRange r = r
 
 instance Rangers Field where
     getRange (Field _ _ r) =r

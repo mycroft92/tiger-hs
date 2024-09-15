@@ -78,6 +78,7 @@ tokens :-
 <0> "*"     {tok Times}
 <0> "/"     {tok Divide}
 <0> ":="    {tok Assign}
+<0> "."     {tok Dot}
 
 -- Comparison operators
 <0> "="     {tok Eq}
