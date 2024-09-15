@@ -176,8 +176,10 @@ exp :: {A.Exp}
     | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval    {A.VarExp $1}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
-    | exp binop exp {A.BinopExp $1 $2 $3 ($1<<->>$3)}
     | '-' exp       {A.UnopExp $2 ($1 <->>$2)}
+    | exp binop exp {A.BinopExp $1 $2 $3 ($1<<->>$3)}
+    | while exp do exp {A.WhileExp $2 $4 ($1 <->>$4)}
+    | break            {A.BreakExp (range $ L.rtRange $1)}
     
 
 
