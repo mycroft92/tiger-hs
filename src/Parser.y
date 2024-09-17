@@ -105,37 +105,37 @@ optional(p)
   :   { Nothing }
   | p { Just $1 }
 
-tyfields
-  :                           {}
-  | identifier ':' identifier {}
-  | tyfields ',' identifier ':' identifier {}
+tyfields :: {[A.RecField]}
+  :                           {[]}
+  | identifier ':' identifier {[unTok $1 (\rng (T.Identifier n) -> unTok $3 (\rng2 (T.Identifier ty) -> A.RecField n False ty ($1 <-> $3)))]}
+  | tyfields ',' identifier ':' identifier {unTok $3 (\rng (T.Identifier n) -> unTok $5 (\rng2 (T.Identifier ty) -> A.RecField n False ty ($3 <-> $5))) : $1}
 
 ty
-  : identifier          {}
-  | '{' tyfields '}'    {}
-  | array of identifier {}
+  : identifier          {unTok $1 (\rng (T.Identifier id) -> A.NameTy id  rng)}
+  | '{' tyfields '}'    {A.RecordTy (reverse $2) ($1 <->$3)}
+  | array of identifier {unTok $3 (\rng (T.Identifier id) -> A.ArrayTy id ($1 <->$3))}
 
 tydec
-  : type identifier '=' ty {}
+  : type identifier '=' ty {unTok $2 (\rng (T.Identifier n) -> A.TypeD n $4 ($1 <->>$4))}
  
 tydecs
   : some(tydec)  { $1}
 
-vardec
-  : var identifier ':=' exp {}
-  | var identifier ':' identifier ':=' exp {}
+vardec :: {A.Dec}
+  : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
+  | var identifier ':' identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> (\rng2 (T.Identifier ty) -> A.VarDec n False (Just ty) $6 ($1 <->>$6)))}
 
 fundec
-  : function identifier '(' tyfields ')' '=' exp {}
-  | function identifier '(' tyfields ')' ':' identifier '=' exp {}
+  : function identifier '(' tyfields ')' '=' exp {unTok $2 (\rng (T.Identifier n) -> A.FunDec n $4 Nothing $7 ($1 <->>$7))}
+  | function identifier '(' tyfields ')' ':' identifier '=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $7 (\_ (T.Identifier rt) -> A.FunDec n $4 (Just rt) $9 ($1 <->>$9)))}
 
 fundecs
   : some(fundec) {$1}
 
-dec
-  : tydecs  {}
-  | vardec  {}
-  | fundecs {}
+dec :: {A.Dec}
+  : tydecs  {$1}
+  | vardec  {$1}
+  | fundecs {$1}
 
 decs
   : many(dec) {$1}
@@ -168,7 +168,7 @@ binop
     | '&'  {A.LAnd}
     | '|'  {A.LOr}
 
-recordExp :: [A.Field]
+recordExp :: {[A.Field]}
     :           {[]}
     | identifier '=' exp { [unTok $1 (\rng (T.Identifier n) -> A.Field n  $3 ($1 <->> $3))] } 
     | recordExp ',' identifier '=' exp { unTok $3 (\rng (T.Identifier n) -> A.Field n  $5 ($3 <->> $5)): $1 } 
@@ -177,16 +177,16 @@ exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
+    | identifier '{' recordExp '}' %shift { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
     | identifier '(' commaExps ')' %shift {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
     | lval    %shift{A.VarExp $1}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
-    | identifier '{' recordExp '}'  {}
     | '-' exp       {A.UnopExp $2 ($1 <->>$2)}
     | exp binop exp {A.BinopExp $1 $2 $3 ($1<<->>$3)}
     | while exp do exp {A.WhileExp $2 $4 ($1 <->>$4)}
     | break            {A.BreakExp (range $ L.rtRange $1)}
-    | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s $4 $5 $6 ($1 <->> $8)) }
+    | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
     | if exp then exp else exp   {A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
     | if exp then exp %shift {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     
