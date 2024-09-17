@@ -168,18 +168,27 @@ binop
     | '&'  {A.LAnd}
     | '|'  {A.LOr}
 
+recordExp :: [A.Field]
+    :           {[]}
+    | identifier '=' exp { [unTok $1 (\rng (T.Identifier n) -> A.Field n  $3 ($1 <->> $3))] } 
+    | recordExp ',' identifier '=' exp { unTok $3 (\rng (T.Identifier n) -> A.Field n  $5 ($3 <->> $5)): $1 } 
 
 exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
-    | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
-    | lval    {A.VarExp $1}
+    | identifier '(' commaExps ')' %shift {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
+    | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
+    | lval    %shift{A.VarExp $1}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
+    | identifier '{' recordExp '}'  {}
     | '-' exp       {A.UnopExp $2 ($1 <->>$2)}
     | exp binop exp {A.BinopExp $1 $2 $3 ($1<<->>$3)}
     | while exp do exp {A.WhileExp $2 $4 ($1 <->>$4)}
     | break            {A.BreakExp (range $ L.rtRange $1)}
+    | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s $4 $5 $6 ($1 <->> $8)) }
+    | if exp then exp else exp   {A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
+    | if exp then exp %shift {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     
 
 
