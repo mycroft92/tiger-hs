@@ -123,7 +123,7 @@ tydecs
 
 vardec :: {A.Dec}
   : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
-  | var identifier ':' identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> (\rng2 (T.Identifier ty) -> A.VarDec n False (Just ty) $6 ($1 <->>$6)))}
+  | var identifier ':' identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $4 (\rng2 (T.Identifier ty) -> A.VarDec n False (Just ty) $6 ($1 <->>$6)))}
 
 fundec
   : function identifier '(' tyfields ')' '=' exp {unTok $2 (\rng (T.Identifier n) -> A.FunDec n $4 Nothing $7 ($1 <->>$7))}
@@ -133,9 +133,9 @@ fundecs
   : some(fundec) {$1}
 
 dec :: {A.Dec}
-  : tydecs  {$1}
+  : tydecs  {A.TypeDec $1 (listRange $1)}
   | vardec  {$1}
-  | fundecs {$1}
+  | fundecs {A.FunctionDec $1 (listRange $1)}
 
 decs
   : many(dec) {$1}
@@ -225,6 +225,11 @@ range r@(L.Range start stop) = A.Range {A.start = start', A.stop = stop'}
         posc  (L.AlexPn a l c) = A.Pos l c
         start' = posc start
         stop'  = posc stop
+
+listRange :: A.Rangers a => [a] -> A.Range
+--listRange []  = A.Range (A.Pos -1 -1) (A.Pos -1 -1)
+listRange [x] = A.getRange x
+listRange (f:lst) = f <<->> (lst !! (length lst -1))
 
 data ParserState = ParserState { errorList :: [Errors]}
 
