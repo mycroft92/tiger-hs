@@ -77,6 +77,8 @@ squash (ArrayExp s e1 e2 r)   = ArrayExp s (squash e1) (squash e2) r
 {-squashDec [x] = [x]-}
 {-squashDec (FunctionDec fs r1: -}
         
+class Apply c where
+    apply :: c -> ( c -> a) -> a
 
 instance Show Pos where
     show (Pos l c) = "("++show l++","++show c ++")"
