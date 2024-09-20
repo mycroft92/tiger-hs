@@ -4,3 +4,5 @@
 *.cabal
 *.swp
 .aider*
+src/Parser.hs
+*.info
