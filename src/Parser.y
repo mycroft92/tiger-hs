@@ -83,7 +83,7 @@ import Errors
 %left '&'
 %left '+' '-'
 %left '*' '/'
-
+%left NEG
 
 %%
 
@@ -183,7 +183,7 @@ exp :: {A.Exp}
     | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
     | lval    %shift{A.VarExp $1}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
-    | '-' exp       {A.UnopExp $2 ($1 <->>$2)}
+    | '-' exp %prec NEG  {A.UnopExp $2 ($1 <->>$2)}
     | exp binop exp %shift{A.BinopExp $1 $2 $3 ($1<<->>$3)}
     | while exp do exp %shift{A.WhileExp $2 $4 ($1 <->>$4)}
     | break            {A.BreakExp (range $ L.rtRange $1)}
@@ -192,7 +192,7 @@ exp :: {A.Exp}
     | if exp then exp %shift    {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
-    --| array
+    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))}  
     
 
 

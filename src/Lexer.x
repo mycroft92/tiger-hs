@@ -16,6 +16,7 @@ import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Control.Conditional (when)
 import TokenTypes (Token(..))
+import Errors
 
 }
 
@@ -123,7 +124,8 @@ data AlexUserState = AlexUserState
   {
     nestLevel :: Int,
     currentString :: [Char],
-    stringStart :: AlexPosn
+    stringStart :: AlexPosn,
+    errors      :: [Errors] -- Parse errors, used only in parsing for now
   }
 
 data Range = Range
@@ -140,13 +142,13 @@ alexInitUserState :: AlexUserState
 alexInitUserState = AlexUserState {
   nestLevel = 0,
   currentString = "",
-  stringStart = AlexPn 0 0 0
+  stringStart = AlexPn 0 0 0,
+  errors = []
 }
 
 -- Monad state manipulators
 get :: Alex AlexUserState
 get = Alex $ \s -> Right (s, alex_ust s)
-
 
 put :: AlexUserState -> Alex ()
 put s' = Alex $ \s -> Right (s{alex_ust = s'}, ())
@@ -155,10 +157,15 @@ modify :: (AlexUserState -> AlexUserState) -> Alex ()
 modify f = Alex $ \s -> Right (s{alex_ust = f (alex_ust s)}, ())
 
 
+putError :: Errors -> Alex ()
+putError err = modify (\s -> s {errors = err:errors s})
+
+
 alexEOF :: Alex RangedToken
 alexEOF = do
   startCode <- alexGetStartCode
-  when (startCode == comment) $
+  when (startCode == comment) $ do
+    
     alexError "Error: unclosed comment at end of file"
   when (startCode == string) $
     alexError "Error: unclosed string literal at end of file"
@@ -251,4 +258,8 @@ handleEscape c inp len = do
   let st = (currentString state) ++[c]
   put state{currentString = st}
   skip inp len
+
+
+addError :: AlexPosn -> String -> Errors
+addError =undefined
 }
