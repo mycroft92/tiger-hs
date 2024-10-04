@@ -4,6 +4,7 @@ module Lexer (
     AlexPosn (..),
     alexGetInput,
     alexError,
+    putError,
     runAlex,
     alexMonadScan,
 
@@ -260,6 +261,4 @@ handleEscape c inp len = do
   skip inp len
 
 
-addError :: AlexPosn -> String -> Errors
-addError =undefined
 }

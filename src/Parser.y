@@ -195,8 +195,6 @@ exp :: {A.Exp}
     | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))}  
     
 
-
-
 {
 
 unTok :: L.RangedToken -> (A.Range -> T.Token -> a) -> a
@@ -240,8 +238,11 @@ data ParserState = ParserState { errorList :: [Errors]}
 parseError :: L.RangedToken -> L.Alex a
 parseError _ = do
   (L.AlexPn _ line column, _, _, _) <- L.alexGetInput
+  L.putError (ParserError $ "Parse error at line " <> show line <> ", column " <> show column)
   L.alexError $ "Parse error at line " <> show line <> ", column " <> show column
 
 lexer :: (L.RangedToken -> L.Alex a) -> L.Alex a
 lexer = (=<< L.alexMonadScan)
+
+
 }
