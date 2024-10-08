@@ -1,8 +1,7 @@
 {
 {-# LANGUAGE DeriveFoldable #-}
 module Parser
-  ( parse
-  ) where
+   where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.Maybe (fromJust)
@@ -77,7 +76,8 @@ import Errors
   '->'       { L.RangedToken T.Arrow _ }
 
 %right '->'
-%left ':='
+%right ';'
+%nonassoc ':='
 %nonassoc '=' '<>' '<' '>' '<=' '>='
 %left '|'
 %left '&'
@@ -88,27 +88,15 @@ import Errors
 %%
 
 -- some helper rules
-many_rev(p)
-  :               { [] }
-  | many_rev(p) p { $2 : $1 }
 
-many(p)
-  : many_rev(p) { reverse $1 }
 
-some_rev(p)
-  : p             {[$1]}
-  | some_rev(p) p {$2:$1}
- 
-some(p)
-  : some_rev(p)   {reverse $1}
 
 optional(p)
   :   { Nothing }
   | p { Just $1 }
 
 tyfields :: {[A.RecField]}
-  :                           {[]}
-  | identifier ':' identifier {[unTok $1 (\rng (T.Identifier n) -> unTok $3 (\rng2 (T.Identifier ty) -> A.RecField n False ty ($1 <-> $3)))]}
+  : identifier ':' identifier {[unTok $1 (\rng (T.Identifier n) -> unTok $3 (\rng2 (T.Identifier ty) -> A.RecField n False ty ($1 <-> $3)))]}
   | tyfields ',' identifier ':' identifier {unTok $3 (\rng (T.Identifier n) -> unTok $5 (\rng2 (T.Identifier ty) -> A.RecField n False ty ($3 <-> $5))) : $1}
 
 ty
@@ -121,7 +109,7 @@ tydec
  
 tydecs
   : tydec        %shift { [$1]}
-  | tydecs tydec %shift { $2:$1}
+  | tydec tydecs %shift { $1:$2}
 
 vardec :: {A.Dec}
   : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
@@ -129,24 +117,28 @@ vardec :: {A.Dec}
 
 fundec
   : function identifier '(' tyfields ')' '=' exp {unTok $2 (\rng (T.Identifier n) -> A.FunDec n $4 Nothing $7 ($1 <->>$7))}
+  | function identifier '(' ')' '=' exp {unTok $2 (\rng (T.Identifier n) -> A.FunDec n [] Nothing $6 ($1 <->>$6))}
   | function identifier '(' tyfields ')' ':' identifier '=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $7 (\_ (T.Identifier rt) -> A.FunDec n $4 (Just rt) $9 ($1 <->>$9)))}
+  | function identifier '(' ')' ':' identifier '=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $6 (\_ (T.Identifier rt) -> A.FunDec n [] (Just rt) $8 ($1 <->>$8)))}
 
 fundecs
   : fundec         %shift{[$1]}
-  | fundecs fundec %shift{$2:$1}
+  | fundec fundecs %shift{$1:$2}
 
 dec :: {A.Dec}
-  : tydecs  {A.TypeDec $1 (listRange (reverse $1))}
+  : tydecs  {A.TypeDec $1 (listRange ($1))}
+  | fundecs {A.FunctionDec $1 (listRange ($1))}
   | vardec  {$1}
-  | fundecs {A.FunctionDec $1 (listRange (reverse $1))}
 
 decs
-  : many(dec) {$1}
+  : {[]}
+  | dec %shift{[$1]}
+  | dec decs %shift{$1:$2}
 
 lval :: {A.Var}
   : identifier          {unTok $1 (\rng (T.Identifier n)-> A.SimpleVar n rng) }
-  | lval '.' identifier {unTok $3 (\rng (T.Identifier n)-> A.FieldVar $1 n ($1 <<-> $3)) }
-  | lval '[' exp ']'    {A.SubscriptVar $1 $3 ($1 <<-> $4)}
+  | lval '.' identifier %shift{unTok $3 (\rng (T.Identifier n)-> A.FieldVar $1 n ($1 <<-> $3)) }
+  | lval '[' exp ']'    %shift{A.SubscriptVar $1 $3 ($1 <<-> $4)}
 
 commaExps :: {[A.Exp]}
     :        {[]}
@@ -157,7 +149,7 @@ seqExps :: {[A.Exp]}
     : exp   {[$1]}
     | seqExps ';' exp {$3:$1}
 
-binop 
+{-binop 
     : '*'  {A.Times}
     | '/'  {A.Divide}
     | '-'  {A.Minus}
@@ -169,7 +161,8 @@ binop
     | '<=' {A.Le}
     | '>=' {A.Ge}
     | '&'  {A.LAnd}
-    | '|'  {A.LOr}
+    | '|'  {A.LOr} -}
+
 
 recordExp :: {[A.Field]}
     :           {[]}
@@ -180,23 +173,33 @@ exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
-    | identifier '{' recordExp '}' { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
-    | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
-    | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
+    | identifier '[' exp ']' of exp %shift{unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
     | lval    %shift{A.VarExp $1}
+    | identifier '{' recordExp '}' %shift { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
+    | identifier '(' commaExps ')' %shift{unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
+    | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
     | '-' exp %prec NEG  {A.UnopExp $2 ($1 <->>$2)}
-    | exp binop exp %shift{A.BinopExp $1 $2 $3 ($1<<->>$3)}
     | while exp do exp %shift{A.WhileExp $2 $4 ($1 <->>$4)}
     | break            {A.BreakExp (range $ L.rtRange $1)}
     | for identifier ':=' exp to exp do exp %shift{unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
     | if exp then exp else exp  %shift{A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
     | if exp then exp %shift    {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
-    | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | let decs in '(' ')' end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
-    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
+    | exp '*' exp  %shift{A.BinopExp $1 A.Times $3 ($1<<->>$3)}
+    | exp '/' exp  %shift{A.BinopExp $1 A.Divide $3 ($1<<->>$3)}
+    | exp '+' exp  %shift{A.BinopExp $1 A.Plus $3 ($1<<->>$3)}
+    | exp '-' exp  %shift{A.BinopExp $1 A.Minus $3 ($1<<->>$3)}
+    | exp '=' exp  %shift{A.BinopExp $1 A.Eq $3 ($1<<->>$3)}
+    | exp '<>' exp %shift{A.BinopExp $1 A.Neq $3 ($1<<->>$3)}
+    | exp '<' exp  %shift{A.BinopExp $1 A.Lt $3 ($1<<->>$3)}
+    | exp '>' exp  %shift{A.BinopExp $1 A.Gt $3 ($1<<->>$3)}
+    | exp '<=' exp %shift{A.BinopExp $1 A.Le $3 ($1<<->>$3)}
+    | exp '>=' exp %shift{A.BinopExp $1 A.Ge $3 ($1<<->>$3)}
+    | exp '&' exp  %shift{A.BinopExp $1 A.LAnd $3 ($1<<->>$3)}
+    | exp '|' exp  %shift{A.BinopExp $1 A.LOr $3 ($1<<->>$3)}
 
 top :: {A.Exp}
     : exp {$1}
