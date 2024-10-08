@@ -7,7 +7,8 @@ module Lib
 
 
 import Parser (parse)
-import Data.Text as T
+import qualified Lexer as L
+import qualified Data.ByteString.Lazy.Char8 as BS
 import TypeChecking (runTypeChecker)
 
 
@@ -17,7 +18,7 @@ someFunc = putStrLn "someFunc"
 runFile :: String -> IO Int
 runFile s = do
     contents <- readFile s
-    case (parse s (T.pack contents)) of
+    case (L.runAlex (BS.pack contents) parse) of
         Left err  -> putStr (show err) >> return 1
         Right exp -> 
             case runTypeChecker exp of

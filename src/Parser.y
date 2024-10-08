@@ -16,7 +16,7 @@ import Errors
 
 }
 
-%name parse exp
+%name parse top
 %tokentype { L.RangedToken }
 %error { parseError }
 %monad { L.Alex } { >>= } { pure }
@@ -192,7 +192,11 @@ exp :: {A.Exp}
     | if exp then exp %shift    {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
-    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))}  
+    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
+
+top :: {A.Exp}
+    : exp {$1}
+    |     {A.NilExp (A.Range (A.Pos 0 0) (A.Pos 0 0))}
     
 
 {
