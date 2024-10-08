@@ -20,7 +20,9 @@ runFile s = do
     contents <- readFile s
     case (L.runAlex (BS.pack contents) parse) of
         Left err  -> putStr (show err) >> return 1
-        Right exp -> 
-            case runTypeChecker exp of
+        Right exp -> do
+            print exp
+            out <- runTypeChecker exp  
+            case out of
               Left errs -> mapM_ (putStr . show) errs >> return 1
               Right expty -> print expty >> return 0

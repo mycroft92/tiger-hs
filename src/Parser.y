@@ -120,7 +120,8 @@ tydec
   : type identifier '=' ty {unTok $2 (\rng (T.Identifier n) -> A.TypeD n $4 ($1 <->>$4))}
  
 tydecs
-  : some(tydec)  { $1}
+  : tydec        %shift { [$1]}
+  | tydecs tydec %shift { $2:$1}
 
 vardec :: {A.Dec}
   : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
@@ -131,12 +132,13 @@ fundec
   | function identifier '(' tyfields ')' ':' identifier '=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $7 (\_ (T.Identifier rt) -> A.FunDec n $4 (Just rt) $9 ($1 <->>$9)))}
 
 fundecs
-  : some(fundec) {$1}
+  : fundec         %shift{[$1]}
+  | fundecs fundec %shift{$2:$1}
 
 dec :: {A.Dec}
-  : tydecs  {A.TypeDec $1 (listRange $1)}
+  : tydecs  {A.TypeDec $1 (listRange (reverse $1))}
   | vardec  {$1}
-  | fundecs {A.FunctionDec $1 (listRange $1)}
+  | fundecs {A.FunctionDec $1 (listRange (reverse $1))}
 
 decs
   : many(dec) {$1}
@@ -192,6 +194,8 @@ exp :: {A.Exp}
     | if exp then exp %shift    {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
+    | let decs in '(' ')' end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
+    | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
 
 top :: {A.Exp}
@@ -240,10 +244,10 @@ listRange (f:lst) = f <<->> (lst !! (length lst -1))
 data ParserState = ParserState { errorList :: [Errors]}
 
 parseError :: L.RangedToken -> L.Alex a
-parseError _ = do
+parseError (L.RangedToken rtoken rng) = do
   (L.AlexPn _ line column, _, _, _) <- L.alexGetInput
-  L.putError (ParserError $ "Parse error at line " <> show line <> ", column " <> show column)
-  L.alexError $ "Parse error at line " <> show line <> ", column " <> show column
+  L.putError (ParserError $ "Parse error at line " <> show rtoken <> " @" <> show line <> ", column " <> show column)
+  L.alexError $ "Parse error at line "  <> show rtoken <> " @"<> show line <> ", column " <> show column
 
 lexer :: (L.RangedToken -> L.Alex a) -> L.Alex a
 lexer = (=<< L.alexMonadScan)

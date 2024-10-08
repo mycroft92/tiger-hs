@@ -4,11 +4,11 @@ import Semantics
 import AST
 import Translate 
 import Errors (Errors(TypeCheckError))
-import Data.Foldable (foldrM)
-{-import Control.Monad.State (StateT(runStateT),-}
-      {-MonadIO(liftIO),-}
-      {-MonadState(get,put),-}
-      {-MonadTrans(lift))-}
+import Data.Foldable (foldlM, foldlM)
+import Control.Monad.State (StateT(runStateT),
+      MonadIO(liftIO),
+      MonadState(get,put),
+      MonadTrans(lift))
 import Control.Monad.State (State, 
     runState,
     MonadState(get,put),
@@ -26,7 +26,7 @@ data TypeCheckerState = TypeCheckerState {
       breakNest :: Int
     } deriving Show
 
-type TypeChecker a    = ExceptT Errors (State TypeCheckerState) a
+type TypeChecker a    = ExceptT Errors (StateT TypeCheckerState IO) a
 
 _checkInt             :: ExpTy -> Bool
 _checkInt INT   = True
@@ -68,17 +68,18 @@ _breakCheck = do
     st <- lift get
     if (breakNest st <= 0) then return False else return True
 
-runTypeChecker :: AST.Exp -> Either [Errors] ExpTy
-runTypeChecker exp = 
-    case runState (runExceptT (typeCheckExp emptyEnv emptyTypeEnv exp)) _initState of
-      (Left err,  TypeCheckerState errors _ _)   -> Left $ reverse (err:errors)
-      (Right expty, TypeCheckerState errors _ _) -> if length errors > 0 then Left (reverse errors) else Right expty
+runTypeChecker :: AST.Exp -> IO (Either [Errors] ExpTy)
+runTypeChecker exp = do
+    out <- runStateT (runExceptT (typeCheckExp emptyEnv emptyTypeEnv exp)) _initState 
+    case out of
+      (Left err,  TypeCheckerState errors _ _)   ->  return$  Left $ reverse (err:errors)
+      (Right expty, TypeCheckerState errors _ _) -> if length errors > 0 then return (Left (reverse errors)) else return (Right expty)
 
 typeCheckExp          :: ValueEnv -> TypeEnv -> AST.Exp -> TypeChecker ExpTy
 typeCheckExp venv tenv (VarExp var)                   = typeCheckVar venv tenv var
-typeCheckExp venv tenv (NilExp range)                 = return NIL
-typeCheckExp venv tenv (IntExp n range)               = return INT
-typeCheckExp venv tenv (StringExp str range)          = return STRING
+typeCheckExp venv tenv (NilExp range)                 = liftIO (print "NIL TC:")>> return NIL
+typeCheckExp venv tenv (IntExp n range)               = liftIO (print "INT TC:")>> return INT
+typeCheckExp venv tenv (StringExp str range)          = liftIO (print "STR TC:")>>return STRING
 typeCheckExp venv tenv (CallExp func args range)      = _typeCheckFunctionCall venv tenv func args range
 typeCheckExp venv tenv (UnopExp exp range)            = _typeCheckUnaryOp venv tenv exp range
 typeCheckExp venv tenv (BinopExp left op right range) = do
@@ -103,7 +104,7 @@ typeCheckExp venv tenv (AssignExp var exp range)      = _typeCheckAssignment ven
 typeCheckExp venv tenv (IfExp cond then' else' range) = _typeCheckIfThenElse venv tenv cond then' else' range
 typeCheckExp venv tenv (WhileExp cond body range)     = _typeCheckWhile venv tenv cond body range
 typeCheckExp venv tenv (BreakExp range)               = _typeCheckBreak range
-typeCheckExp venv tenv (LetExp decs body range)       = _typeCheckLet venv tenv decs body range
+typeCheckExp venv tenv (LetExp decs body range)       =  liftIO (print "Let TC:") >> _typeCheckLet venv tenv decs body range
 typeCheckExp venv tenv (ArrayExp typ size init range) = _typeCheckArrayCreation venv tenv typ size init range
 typeCheckExp venv tenv (ForExp var escape lo hi body range) = _typeCheckFor venv tenv var escape lo hi body range
 
@@ -134,7 +135,8 @@ _checkLogicalOp left right =
 typeCheckVar          :: ValueEnv -> TypeEnv -> AST.Var -> TypeChecker ExpTy
 typeCheckVar venv tenv (SimpleVar var range) = 
     case look venv var of
-      Just (VarEntry {ty=ty}) -> return ty
+      Just (VarEntry ty) -> return ty
+      Just _             -> throwError $ TypeCheckError $ "Expected a variable: "++ var ++" found a function instead"
       Nothing  -> throwError $ TypeCheckError $ "Undefined identifier: "++var++" used at: "++show range
 
 typeCheckVar venv tenv (FieldVar var field range) = do
@@ -261,7 +263,12 @@ _typeCheckBreak range = do
 
 _typeCheckLet         :: ValueEnv -> TypeEnv -> [AST.Dec] -> AST.Exp -> Range -> TypeChecker ExpTy
 _typeCheckLet ven ten decl exp _ = do
-    (venv, tenv) <- foldrM (\d (v, t) -> typeCheckDec v t d) (ven, ten) decl
+    liftIO $ printEnv ten
+    liftIO $ printEnv ven
+    liftIO (mapM_ print decl)
+    (venv, tenv) <- foldlM (\(v, t) d -> liftIO (print ("DecTC:" ++ show d)) >> typeCheckDec v t d) (ven, ten) decl
+    liftIO $ printEnv tenv
+    liftIO $ printEnv venv
     typeCheckExp venv tenv exp
 
 _typeCheckArrayCreation :: ValueEnv -> TypeEnv -> String -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
@@ -286,6 +293,7 @@ typeCheckDec venv tenv (VarDec name escape (Just typ) exp range) = do
           if typ' == expty then 
                    do
                      let venv' = enter venv name (VarEntry expty)
+                     liftIO (printEnv venv')
                      return (venv', tenv)
           else
             do
@@ -293,23 +301,25 @@ typeCheckDec venv tenv (VarDec name escape (Just typ) exp range) = do
                 return (venv,tenv)
       Nothing -> do
           _addError (TypeCheckError $ "Unknown type: "++ show typ ++" used in decl: "++show name ++" :"++show range++ " expected: "++ show expty)
+          liftIO (printEnv venv)
           return (venv,tenv)
 
 typeCheckDec venv tenv (VarDec name escape Nothing exp range) = do
     expty <- (typeCheckExp venv tenv exp) `catchError` (\e -> _addError e >> return NIL)
     let venv'  = enter venv name (VarEntry expty)
+    liftIO (printEnv venv')
     return (venv', tenv)
 
 typeCheckDec venv tenv (TypeDec typeDecs range) = do
     -- make the headers first, then process the RHS of each definition.
     -- This is required to support mutually recursive types
-    tenv' <- foldrM (\(TypeD name _ _) tenv' -> 
+    tenv' <- foldlM (\tenv' (TypeD name _ _)-> 
         return $ enter tenv' name (NAME name Nothing)) tenv typeDecs
-    foldrM (\typeD (venv'', tenv'') -> typeCheckTypeD venv'' tenv'' typeD) (venv, tenv') typeDecs
+    foldlM (\(venv'', tenv'') typeD-> typeCheckTypeD venv'' tenv'' typeD) (venv, tenv') typeDecs
 
 typeCheckDec venv tenv (FunctionDec funDecs range) = do
     -- mutually recursive function support (except cycle checks)
-    venv' <- foldrM (\fundec venv' -> _generateFunType tenv venv' fundec) venv funDecs
+    venv' <- foldlM (\venv' fundec-> _generateFunType tenv venv' fundec) venv funDecs
     -- Typecheck the bodies
     mapM (\fundec -> _typeCheckFunction tenv venv' fundec) funDecs
     return (venv', tenv)
@@ -369,7 +379,7 @@ _generateFunType tenv venv (FunDec{fname=fn, fparams=ps, fresult=res, fbody=body
 _typeCheckFunction    :: TypeEnv -> ValueEnv -> FunDec -> TypeChecker ()
 _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=(Just res), fbody=body, frange=rng}) = do
     -- add parameters to the value environment
-    venv' <- foldrM (\p@(RecField n _ tyn range) venv'-> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
+    venv' <- foldlM (\venv' p@(RecField n _ tyn range) -> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
     rt    <- typeCheckExp venv tenv body
     case (look tenv res) of
       Just ty -> if rt == ty then return () else throwError $ TypeCheckError $ "Return type mismatch in function: "++show fn++": "++show rng++ " given: "++ show ty ++" computed: "++show rt
@@ -377,7 +387,7 @@ _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=(Just res), f
 
 _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=Nothing, fbody=body, frange=rng}) = do
     -- add parameters to the value environment
-    venv' <- foldrM (\p@(RecField n _ tyn range) venv'-> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
+    venv' <- foldlM (\venv' p@(RecField n _ tyn range)-> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
     rt    <- typeCheckExp venv tenv body
     if rt == NIL then return () else throwError $ TypeCheckError $ "Return type mismatch in function: "++show fn++": "++show rng++ " given: "++ show NIL ++" computed: "++show rt
     
