@@ -45,7 +45,7 @@ tokens :-
 -- TODO
 <string> \\\\  {handleEscape '\\'}
 <string> \\\"  {handleEscape '"'}
-<string> $white+ {addString}
+--<string> $white+ {parseString}
 <string> \\n   {handleEscape '\n'}
 <string> \\v   {handleEscape '\v'}
 <string> \\t   {handleEscape '\t'}
@@ -227,7 +227,7 @@ unnestComment input len = do
     alexSetStartCode 0
   skip input len
 
-initString, parseString, addString, endParseString :: AlexAction RangedToken
+initString, parseString,  endParseString :: AlexAction RangedToken
 initString inp@(start,_,_,_) len = do
   modify $ \s -> s{stringStart = start, currentString = "\""}
   skip inp len
@@ -240,7 +240,7 @@ endParseString inp@(end,_,_,_) len = do
   let out = makeString (currentString state ++ "\"") (stringStart state) end
   put state{currentString = "",stringStart = AlexPn 0 0 0}
   alexSetStartCode 0
-  skip inp len
+  --skip inp len
   return out
   where
     makeString :: [Char] -> AlexPosn -> AlexPosn -> RangedToken
@@ -248,17 +248,12 @@ endParseString inp@(end,_,_,_) len = do
       , rtRange = Range{start = start, stop = end} 
       }
 
-addString inp@(_, _, str, _) len = do
-  st <- get
-  modify $ \s -> s{currentString = (currentString st) ++ (BS.unpack $ BS.take len str)}
-  skip inp len
-
 handleEscape :: Char -> AlexAction RangedToken
 handleEscape c inp len = do
   state <- get
   let st = (currentString state) ++[c]
   put state{currentString = st}
-  skip inp len
+  skip inp 1
 
 
 }

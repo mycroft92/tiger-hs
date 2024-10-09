@@ -88,6 +88,8 @@ import Errors
 %left '+' '-'
 %left '*' '/'
 %left NEG
+%right '('
+--%left ')'
 
 %%
 
@@ -148,9 +150,13 @@ commaExps :: {[A.Exp]}
     | exp    {[$1]}
     | commaExps ',' exp {$3:$1} -- needs to reversed at use site
 
-seqExps :: {[A.Exp]}
-    : exp   {[$1]}
-    | seqExps ';' exp {$3:$1}
+seqExps_ :: {[A.Exp]}
+    : exp ';'       {[unTok $2 (\rng _ -> A.NilExp rng),$1]}
+    | exp ';' exp   {[$3,$1]}
+    | seqExps_ ';' exp {$3:$1}
+
+seqExps :: {A.Exp}
+        : '(' seqExps_ ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
 
 {-binop 
     : '*'  {A.Times}
@@ -181,7 +187,7 @@ exp :: {A.Exp}
     | identifier '{' recordExp '}'  { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
     | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
-    | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
+    | seqExps       {$1}
     --| '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
     | '-' exp %prec NEG  {A.UnopExp $2 ($1 <->>$2)}
     | while exp do exp {A.WhileExp $2 $4 ($1 <->>$4)}
@@ -189,8 +195,8 @@ exp :: {A.Exp}
     | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
     | if exp then exp else exp  {A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
     | if exp then exp     {A.IfExp $2 $4 Nothing ($1 <->>$4)}
-    | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
-    | let  in seqExps end {A.LetExp [] (A.SeqExp (reverse $3) (listRange (reverse $3))) ($1 <-> $4)}
+    | let decs in exp end {A.LetExp $2 $4 ($1 <-> $5)}
+    | let  in exp end {A.LetExp [] $3 ($1 <-> $4)}
     | let  in '(' ')' end {A.LetExp [] (A.NilExp ($3 <-> $4)) ($1 <-> $4)}
     | let decs in '(' ')' end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
@@ -206,6 +212,7 @@ exp :: {A.Exp}
     | exp '>=' exp %shift{A.BinopExp $1 A.Ge $3 ($1<<->>$3)}
     | exp '&' exp  %shift{A.BinopExp $1 A.LAnd $3 ($1<<->>$3)}
     | exp '|' exp  %shift{A.BinopExp $1 A.LOr $3 ($1<<->>$3)}
+    | '(' exp ')' {$2}
 
 top :: {A.Exp}
     : exp {$1}
