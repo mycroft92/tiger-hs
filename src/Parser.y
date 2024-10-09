@@ -195,11 +195,11 @@ exp :: {A.Exp}
     | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
     | if exp then exp else exp  {A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
     | if exp then exp     {A.IfExp $2 $4 Nothing ($1 <->>$4)}
-    | let decs in exp end {A.LetExp $2 $4 ($1 <-> $5)}
+    | let decs in exp end {A.LetExp (reverse $2) $4 ($1 <-> $5)}
     | let  in exp end {A.LetExp [] $3 ($1 <-> $4)}
     | let  in '(' ')' end {A.LetExp [] (A.NilExp ($3 <-> $4)) ($1 <-> $4)}
-    | let decs in '(' ')' end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
-    | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
+    | let decs in '(' ')' end {A.LetExp (reverse $2) (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
+    | let decs in end {A.LetExp (reverse $2) (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | exp '*' exp  %shift{A.BinopExp $1 A.Times $3 ($1<<->>$3)}
     | exp '/' exp  %shift{A.BinopExp $1 A.Divide $3 ($1<<->>$3)}
     | exp '+' exp  %shift{A.BinopExp $1 A.Plus $3 ($1<<->>$3)}
