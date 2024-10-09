@@ -77,10 +77,14 @@ import Errors
 
 %right '->'
 %right ';'
+%left function type var
+%right else in do then
 %nonassoc ':='
-%nonassoc '=' '<>' '<' '>' '<=' '>='
+%left end
+%nonassoc to of
 %left '|'
 %left '&'
+%nonassoc '=' '<>' '<' '>' '<=' '>='
 %left '+' '-'
 %left '*' '/'
 %left NEG
@@ -108,8 +112,8 @@ tydec
   : type identifier '=' ty {unTok $2 (\rng (T.Identifier n) -> A.TypeD n $4 ($1 <->>$4))}
  
 tydecs
-  : tydec        %shift { [$1]}
-  | tydec tydecs %shift { $1:$2}
+  : tydec         { [$1]}
+  | tydecs tydec  %shift{ $2:$1}
 
 vardec :: {A.Dec}
   : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
@@ -123,20 +127,19 @@ fundec
 
 fundecs
   : fundec         %shift{[$1]}
-  | fundec fundecs %shift{$1:$2}
+  | fundecs fundec %shift{$2:$1}
 
 dec :: {A.Dec}
-  : tydecs  {A.TypeDec $1 (listRange ($1))}
-  | fundecs {A.FunctionDec $1 (listRange ($1))}
+  : tydecs  %shift{A.TypeDec $1 (listRange (reverse $1))}
+  | fundecs %shift{A.FunctionDec $1 (listRange (reverse $1))}
   | vardec  {$1}
 
 decs
-  : {[]}
-  | dec %shift{[$1]}
-  | dec decs %shift{$1:$2}
+  : dec {[$1]}
+  | decs dec {$2:$1}
 
 lval :: {A.Var}
-  : identifier          {unTok $1 (\rng (T.Identifier n)-> A.SimpleVar n rng) }
+  : identifier          %shift{unTok $1 (\rng (T.Identifier n)-> A.SimpleVar n rng) }
   | lval '.' identifier %shift{unTok $3 (\rng (T.Identifier n)-> A.FieldVar $1 n ($1 <<-> $3)) }
   | lval '[' exp ']'    %shift{A.SubscriptVar $1 $3 ($1 <<-> $4)}
 
@@ -173,19 +176,22 @@ exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
-    | identifier '[' exp ']' of exp %shift{unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
-    | lval    %shift{A.VarExp $1}
-    | identifier '{' recordExp '}' %shift { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
-    | identifier '(' commaExps ')' %shift{unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
+    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
+    | lval    {A.VarExp $1}
+    | identifier '{' recordExp '}'  { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
+    | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
     | '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
+    --| '(' seqExps ')'    {A.SeqExp (reverse $2) ($1 <-> $3)}
     | '-' exp %prec NEG  {A.UnopExp $2 ($1 <->>$2)}
-    | while exp do exp %shift{A.WhileExp $2 $4 ($1 <->>$4)}
+    | while exp do exp {A.WhileExp $2 $4 ($1 <->>$4)}
     | break            {A.BreakExp (range $ L.rtRange $1)}
-    | for identifier ':=' exp to exp do exp %shift{unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
-    | if exp then exp else exp  %shift{A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
-    | if exp then exp %shift    {A.IfExp $2 $4 Nothing ($1 <->>$4)}
+    | for identifier ':=' exp to exp do exp {unTok $2 (\rng (T.Identifier s) -> A.ForExp s False $4 $6 $8 ($1 <->> $8)) }
+    | if exp then exp else exp  {A.IfExp $2 $4 (Just $6) ($1 <->> $6)}
+    | if exp then exp     {A.IfExp $2 $4 Nothing ($1 <->>$4)}
     | let decs in seqExps end {A.LetExp $2 (A.SeqExp (reverse $4) (listRange (reverse $4))) ($1 <-> $5)}
+    | let  in seqExps end {A.LetExp [] (A.SeqExp (reverse $3) (listRange (reverse $3))) ($1 <-> $4)}
+    | let  in '(' ')' end {A.LetExp [] (A.NilExp ($3 <-> $4)) ($1 <-> $4)}
     | let decs in '(' ')' end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | let decs in end {A.LetExp $2 (unTok $3 (\rng _ ->A.NilExp rng)) ($1 <-> $4)}
     | exp '*' exp  %shift{A.BinopExp $1 A.Times $3 ($1<<->>$3)}

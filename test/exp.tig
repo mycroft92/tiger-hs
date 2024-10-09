@@ -1,0 +1,1 @@
+(ord(buffer)>=ord("0")) & (ord(buffer)<=ord("9"))
