@@ -1,10 +1,12 @@
+
+{-# LANGUAGE FlexibleContexts #-}
 module TypeChecking (runTypeChecker) where
 import Env  -- ValueEnv, TypeEnv
 import Semantics
 import AST
 import Translate 
 import Errors (Errors(TypeCheckError))
-import Data.Foldable (foldlM, foldlM)
+import Data.Foldable (foldlM, foldrM)
 import Control.Monad.State (StateT(runStateT),
       MonadIO(liftIO),
       MonadState(get,put),
@@ -16,6 +18,7 @@ import Control.Monad.State (State,
 import Control.Monad.Except (ExceptT(..), runExceptT, throwError, catchError)
 import Control.Monad (forM)
 import Data.Bits (Bits(xor))
+import qualified Data.Map as Map (map, toList, fromList)
 
 -- type ExpTy            = (Translate.Exp, Semantics.Ty)
 type ExpTy            = Semantics.Ty
@@ -70,16 +73,16 @@ _breakCheck = do
 
 runTypeChecker :: AST.Exp -> IO (Either [Errors] ExpTy)
 runTypeChecker exp = do
-    out <- runStateT (runExceptT (typeCheckExp emptyEnv emptyTypeEnv exp)) _initState 
+    out <- runStateT (runExceptT (typeCheckExp emptyValueEnv emptyTypeEnv exp)) _initState 
     case out of
       (Left err,  TypeCheckerState errors _ _)   ->  return$  Left $ reverse (err:errors)
       (Right expty, TypeCheckerState errors _ _) -> if length errors > 0 then return (Left (reverse errors)) else return (Right expty)
 
 typeCheckExp          :: ValueEnv -> TypeEnv -> AST.Exp -> TypeChecker ExpTy
 typeCheckExp venv tenv (VarExp var)                   = typeCheckVar venv tenv var
-typeCheckExp venv tenv (NilExp range)                 = liftIO (print "NIL TC:")>> return NIL
-typeCheckExp venv tenv (IntExp n range)               = liftIO (print "INT TC:")>> return INT
-typeCheckExp venv tenv (StringExp str range)          = liftIO (print "STR TC:")>>return STRING
+typeCheckExp venv tenv (NilExp range)                 = return NIL
+typeCheckExp venv tenv (IntExp n range)               = return INT
+typeCheckExp venv tenv (StringExp str range)          = return STRING
 typeCheckExp venv tenv (CallExp func args range)      = _typeCheckFunctionCall venv tenv func args range
 typeCheckExp venv tenv (UnopExp exp range)            = _typeCheckUnaryOp venv tenv exp range
 typeCheckExp venv tenv (BinopExp left op right range) = do
@@ -104,7 +107,7 @@ typeCheckExp venv tenv (AssignExp var exp range)      = _typeCheckAssignment ven
 typeCheckExp venv tenv (IfExp cond then' else' range) = _typeCheckIfThenElse venv tenv cond then' else' range
 typeCheckExp venv tenv (WhileExp cond body range)     = _typeCheckWhile venv tenv cond body range
 typeCheckExp venv tenv (BreakExp range)               = _typeCheckBreak range
-typeCheckExp venv tenv (LetExp decs body range)       =  liftIO (print "Let TC:") >> _typeCheckLet venv tenv decs body range
+typeCheckExp venv tenv (LetExp decs body range)       = _typeCheckLet venv tenv decs body range
 typeCheckExp venv tenv (ArrayExp typ size init range) = _typeCheckArrayCreation venv tenv typ size init range
 typeCheckExp venv tenv (ForExp var escape lo hi body range) = _typeCheckFor venv tenv var escape lo hi body range
 
@@ -118,6 +121,7 @@ _checkEqualityOp      :: ExpTy -> ExpTy -> TypeChecker ExpTy
 _checkEqualityOp left right =
     if left == right
     then return INT
+    else if ((isRecTy left && right == NIL) || (isRecTy right && left == NIL)) then return INT 
     else throwError $ TypeCheckError $ "Type mismatch in equality operation: " ++ show left ++ " vs " ++ show right
 
 _checkComparisonOp    :: ExpTy -> ExpTy -> TypeChecker ExpTy
@@ -144,7 +148,11 @@ typeCheckVar venv tenv (FieldVar var field range) = do
     case varTy of
         REC fields _ ->
             case lookup field fields of
-                Just fieldTy -> return fieldTy
+                Just fieldTy -> 
+                    case fieldTy of
+                      NAME fty (Just fty') -> return fty'
+                      NAME fty Nothing    -> throwError $ TypeCheckError $ "Field " ++ field ++ " has unknown type: "++show fty++" at: " ++ show range
+                      _ -> return fieldTy
                 Nothing -> throwError $ TypeCheckError $ "Field " ++ field ++ " not found in record: "++show var++" at: " ++ show range
         ty -> throwError $ TypeCheckError $ "Trying to access field " ++ field ++ " of non-record: "++show var++" type: " ++ show ty ++"at: " ++ show range
 
@@ -188,6 +196,9 @@ _typeCheckRecordCreation venv tenv tyId fields range =
          if verifyFields paramList fields then
             mapM (\(Field name value range) -> 
                 case findField paramList name of
+                 -- Just (NAME ty' (Just ty)) -> do
+                 --     fty <- typeCheckExp venv tenv value
+                 --     if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
                   Just ty -> do
                       fty <- typeCheckExp venv tenv value
                       if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
@@ -196,7 +207,7 @@ _typeCheckRecordCreation venv tenv tyId fields range =
       _ -> throwError $ TypeCheckError $ "Type: "++ tyId ++ " at: "++show range ++" is not a valid record type."
     where
         verifyFields :: [(String,Semantics.Ty)] -> [Field] -> Bool
-        verifyFields ps fs = foldr (\(Field name _ _) acc -> acc && memField ps name) True fs 
+        verifyFields ps fs = foldl (\acc (Field name _ _) -> acc && memField ps name) True fs 
       
 
 _typeCheckSequence    :: ValueEnv -> TypeEnv -> [AST.Exp] -> Range -> TypeChecker ExpTy
@@ -212,7 +223,7 @@ _typeCheckAssignment venv tenv var exp range = do
     varTy <- typeCheckVar venv tenv var
     expTy <- typeCheckExp venv tenv exp
     if varTy == expTy
-        then return expTy
+        then return NIL
         else throwError $ TypeCheckError $ "Type mismatch in assignment at " ++ show range ++ ": variable has type " ++ show varTy ++ ", but expression has type " ++ show expTy
 
 _typeCheckIfThenElse  :: ValueEnv -> TypeEnv -> AST.Exp -> AST.Exp -> Maybe AST.Exp -> Range -> TypeChecker ExpTy
@@ -263,13 +274,28 @@ _typeCheckBreak range = do
 
 _typeCheckLet         :: ValueEnv -> TypeEnv -> [AST.Dec] -> AST.Exp -> Range -> TypeChecker ExpTy
 _typeCheckLet ven ten decl exp _ = do
-    liftIO $ printEnv ten
-    liftIO $ printEnv ven
-    liftIO (mapM_ print decl)
-    (venv, tenv) <- foldlM (\(v, t) d -> liftIO (print ("DecTC:" ++ show d)) >> typeCheckDec v t d) (ven, ten) decl
-    liftIO $ printEnv tenv
-    liftIO $ printEnv venv
+    (venv, tenv) <- foldlM (\(v, t) d-> typeCheckDec v t d) (ven, ten) decl
     typeCheckExp venv tenv exp
+
+correctEnv :: TypeEnv -> TypeChecker TypeEnv
+correctEnv tenv = do
+    l <- mapM handle (Map.toList tenv)
+    return (Map.fromList l)
+    where
+        --handle :: (Monad m) => (String, Ty) -> m (String, Ty)
+        handle (k,(NAME name _)) = case look tenv name of
+                                       -- change this to NAME type?
+                                       Just ty -> return (k,ty)
+                                       Nothing -> throwError $ TypeCheckError $ "Var "++k ++" has Type: "++name ++ " not defined!"
+        handle (v,(REC fields k))      = do
+            flds <- mapM handle fields
+            liftIO $ (mapM_ print flds)
+            return (v,(REC flds k))
+        handle (v, ARRAY ty u) = do
+            (_,ty') <- handle (v,ty)
+            return $ (v, ARRAY ty' u) 
+        handle ty = return ty
+
 
 _typeCheckArrayCreation :: ValueEnv -> TypeEnv -> String -> AST.Exp -> AST.Exp -> Range -> TypeChecker ExpTy
 _typeCheckArrayCreation venv tenv typeName sizeExp initExp range = do
@@ -293,7 +319,6 @@ typeCheckDec venv tenv (VarDec name escape (Just typ) exp range) = do
           if typ' == expty then 
                    do
                      let venv' = enter venv name (VarEntry expty)
-                     liftIO (printEnv venv')
                      return (venv', tenv)
           else
             do
@@ -301,13 +326,11 @@ typeCheckDec venv tenv (VarDec name escape (Just typ) exp range) = do
                 return (venv,tenv)
       Nothing -> do
           _addError (TypeCheckError $ "Unknown type: "++ show typ ++" used in decl: "++show name ++" :"++show range++ " expected: "++ show expty)
-          liftIO (printEnv venv)
           return (venv,tenv)
 
 typeCheckDec venv tenv (VarDec name escape Nothing exp range) = do
     expty <- (typeCheckExp venv tenv exp) `catchError` (\e -> _addError e >> return NIL)
     let venv'  = enter venv name (VarEntry expty)
-    liftIO (printEnv venv')
     return (venv', tenv)
 
 typeCheckDec venv tenv (TypeDec typeDecs range) = do
@@ -315,7 +338,10 @@ typeCheckDec venv tenv (TypeDec typeDecs range) = do
     -- This is required to support mutually recursive types
     tenv' <- foldlM (\tenv' (TypeD name _ _)-> 
         return $ enter tenv' name (NAME name Nothing)) tenv typeDecs
-    foldlM (\(venv'', tenv'') typeD-> typeCheckTypeD venv'' tenv'' typeD) (venv, tenv') typeDecs
+    (venv''', tenv''') <- foldlM (\(venv'', tenv'') typeD-> typeCheckTypeD venv'' tenv'' typeD) (venv, tenv') typeDecs
+    tenv'''' <- correctEnv tenv'''
+    liftIO $ print tenv''''
+    return (venv''', tenv'''')
 
 typeCheckDec venv tenv (FunctionDec funDecs range) = do
     -- mutually recursive function support (except cycle checks)
@@ -380,7 +406,7 @@ _typeCheckFunction    :: TypeEnv -> ValueEnv -> FunDec -> TypeChecker ()
 _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=(Just res), fbody=body, frange=rng}) = do
     -- add parameters to the value environment
     venv' <- foldlM (\venv' p@(RecField n _ tyn range) -> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
-    rt    <- typeCheckExp venv tenv body
+    rt    <- typeCheckExp venv' tenv body
     case (look tenv res) of
       Just ty -> if rt == ty then return () else throwError $ TypeCheckError $ "Return type mismatch in function: "++show fn++": "++show rng++ " given: "++ show ty ++" computed: "++show rt
       Nothing -> throwError $ TypeCheckError $ "Return type not found in function: "++show fn++": "++show rng++ " given: "++show res ++" computed: "++show rt
@@ -388,7 +414,7 @@ _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=(Just res), f
 _typeCheckFunction tenv venv (FunDec{fname=fn, fparams=ps, fresult=Nothing, fbody=body, frange=rng}) = do
     -- add parameters to the value environment
     venv' <- foldlM (\venv' p@(RecField n _ tyn range)-> enter venv' n . VarEntry <$> _typeCheckParam tenv p) venv ps
-    rt    <- typeCheckExp venv tenv body
+    rt    <- typeCheckExp venv' tenv body
     if rt == NIL then return () else throwError $ TypeCheckError $ "Return type mismatch in function: "++show fn++": "++show rng++ " given: "++ show NIL ++" computed: "++show rt
     
 

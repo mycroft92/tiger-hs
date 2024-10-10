@@ -15,11 +15,14 @@ printEnv env = Map.foldrWithKey printEntry (return ()) env
       putStrLn $ key ++ " -> " ++ show value
       acc
 
-emptyEnv :: Env a
-emptyEnv = Map.empty
+emptyValueEnv :: ValueEnv
+emptyValueEnv = Map.fromList [("getchar", FunEntry {formals = [], result = STRING}),("ord", FunEntry {formals = [STRING], result = INT}), ("print", FunEntry {formals = [STRING], result = NIL}), ("chr", FunEntry {formals = [INT], result = STRING})]
 
 emptyTypeEnv :: TypeEnv
 emptyTypeEnv = Map.fromList [("int",INT), ("string", STRING), ("nil",NIL)]
+
+
+
 
 addKey :: Env (Maybe a) -> String -> Env (Maybe a)
 addKey env k = Map.insert k Nothing env

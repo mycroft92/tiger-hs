@@ -78,16 +78,15 @@ import Errors
 %right '->'
 %right ';'
 %left function type var
-%right else in do then
+%right else in do then while if
 %nonassoc ':='
 %left end
 %nonassoc to of
-%left '|'
-%left '&'
-%nonassoc '=' '<>' '<' '>' '<=' '>='
+%left '|' '&'
 %left '+' '-'
 %left '*' '/'
 %left NEG
+%nonassoc '=' '<>' '<' '>' '<=' '>='
 %right '('
 --%left ')'
 
@@ -204,12 +203,12 @@ exp :: {A.Exp}
     | exp '/' exp  %shift{A.BinopExp $1 A.Divide $3 ($1<<->>$3)}
     | exp '+' exp  %shift{A.BinopExp $1 A.Plus $3 ($1<<->>$3)}
     | exp '-' exp  %shift{A.BinopExp $1 A.Minus $3 ($1<<->>$3)}
-    | exp '=' exp  %shift{A.BinopExp $1 A.Eq $3 ($1<<->>$3)}
-    | exp '<>' exp %shift{A.BinopExp $1 A.Neq $3 ($1<<->>$3)}
-    | exp '<' exp  %shift{A.BinopExp $1 A.Lt $3 ($1<<->>$3)}
-    | exp '>' exp  %shift{A.BinopExp $1 A.Gt $3 ($1<<->>$3)}
-    | exp '<=' exp %shift{A.BinopExp $1 A.Le $3 ($1<<->>$3)}
-    | exp '>=' exp %shift{A.BinopExp $1 A.Ge $3 ($1<<->>$3)}
+    | exp '=' exp        {A.BinopExp $1 A.Eq $3 ($1<<->>$3)}
+    | exp '<>' exp       {A.BinopExp $1 A.Neq $3 ($1<<->>$3)}
+    | exp '<' exp        {A.BinopExp $1 A.Lt $3 ($1<<->>$3)}
+    | exp '>' exp        {A.BinopExp $1 A.Gt $3 ($1<<->>$3)}
+    | exp '<=' exp       {A.BinopExp $1 A.Le $3 ($1<<->>$3)}
+    | exp '>=' exp       {A.BinopExp $1 A.Ge $3 ($1<<->>$3)}
     | exp '&' exp  %shift{A.BinopExp $1 A.LAnd $3 ($1<<->>$3)}
     | exp '|' exp  %shift{A.BinopExp $1 A.LOr $3 ($1<<->>$3)}
     | '(' exp ')' {$2}
