@@ -69,7 +69,7 @@ _breakDown = do
 _breakCheck :: TypeChecker Bool
 _breakCheck = do
     st <- lift get
-    if (breakNest st <= 0) then return False else return True
+    if breakNest st <= 0 then return False else return True
 
 runTypeChecker :: AST.Exp -> IO (Either [Errors] ExpTy)
 runTypeChecker exp = do
@@ -88,7 +88,7 @@ typeCheckExp venv tenv (UnopExp exp range)            = _typeCheckUnaryOp venv t
 typeCheckExp venv tenv (BinopExp left op right range) = do
     leftTy  <- typeCheckExp venv tenv left
     rightTy <- typeCheckExp venv tenv right
-    case op of
+    (case op of
         Plus   -> _checkArithOp leftTy rightTy
         Minus  -> _checkArithOp leftTy rightTy
         Times  -> _checkArithOp leftTy rightTy
@@ -100,7 +100,7 @@ typeCheckExp venv tenv (BinopExp left op right range) = do
         Gt     -> _checkComparisonOp leftTy rightTy
         Ge     -> _checkComparisonOp leftTy rightTy
         LAnd   -> _checkLogicalOp leftTy rightTy
-        LOr    -> _checkLogicalOp leftTy rightTy
+        LOr    -> _checkLogicalOp leftTy rightTy) `catchError` (\e -> throwError $TypeCheckError $ "mismatched types left: "++ show left ++ " right: "++show right++ " @"++show range)
 typeCheckExp venv tenv (RecordExp tyid fields range)  = _typeCheckRecordCreation venv tenv tyid fields range
 typeCheckExp venv tenv (SeqExp exps range)            = _typeCheckSequence venv tenv exps range
 typeCheckExp venv tenv (AssignExp var exp range)      = _typeCheckAssignment venv tenv var exp range
@@ -121,7 +121,7 @@ _checkEqualityOp      :: ExpTy -> ExpTy -> TypeChecker ExpTy
 _checkEqualityOp left right =
     if left == right
     then return INT
-    else if ((isRecTy left && right == NIL) || (isRecTy right && left == NIL)) then return INT 
+    --else if ((isRecTy left && right == NIL) || (isRecTy right && left == NIL)) then return INT 
     else throwError $ TypeCheckError $ "Type mismatch in equality operation: " ++ show left ++ " vs " ++ show right
 
 _checkComparisonOp    :: ExpTy -> ExpTy -> TypeChecker ExpTy
@@ -151,7 +151,10 @@ typeCheckVar venv tenv (FieldVar var field range) = do
                 Just fieldTy -> 
                     case fieldTy of
                       NAME fty (Just fty') -> return fty'
-                      NAME fty Nothing    -> throwError $ TypeCheckError $ "Field " ++ field ++ " has unknown type: "++show fty++" at: " ++ show range
+                      NAME fty Nothing     ->
+                          case look tenv fty of
+                            Just fty' -> return fty'
+                            _  -> throwError $ TypeCheckError $ "Field " ++ field ++ " has unknown type: "++show fty++" at: " ++ show range
                       _ -> return fieldTy
                 Nothing -> throwError $ TypeCheckError $ "Field " ++ field ++ " not found in record: "++show var++" at: " ++ show range
         ty -> throwError $ TypeCheckError $ "Trying to access field " ++ field ++ " of non-record: "++show var++" type: " ++ show ty ++"at: " ++ show range
@@ -196,9 +199,10 @@ _typeCheckRecordCreation venv tenv tyId fields range =
          if verifyFields paramList fields then
             mapM (\(Field name value range) -> 
                 case findField paramList name of
-                 -- Just (NAME ty' (Just ty)) -> do
-                 --     fty <- typeCheckExp venv tenv value
-                 --     if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
+                  Just (NAME ty' (Just ty)) -> do
+                      fty <- typeCheckExp venv tenv value
+                      if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
+                  --Just (Name ty' Nothing) -> do
                   Just ty -> do
                       fty <- typeCheckExp venv tenv value
                       if fty == ty then return () else throwError $ TypeCheckError $ "Record field type mistmatch: "++ name++"at: "++show range ++ " expected: "++ show ty ++ " found: "++ show fty
@@ -283,14 +287,13 @@ correctEnv tenv = do
     return (Map.fromList l)
     where
         --handle :: (Monad m) => (String, Ty) -> m (String, Ty)
-        handle (k,(NAME name _)) = case look tenv name of
+        handle (k,NAME name _) = case look tenv name of
                                        -- change this to NAME type?
                                        Just ty -> return (k,ty)
                                        Nothing -> throwError $ TypeCheckError $ "Var "++k ++" has Type: "++name ++ " not defined!"
-        handle (v,(REC fields k))      = do
+        handle (v,REC fields k)      = do
             flds <- mapM handle fields
-            liftIO $ (mapM_ print flds)
-            return (v,(REC flds k))
+            return (v,REC flds k)
         handle (v, ARRAY ty u) = do
             (_,ty') <- handle (v,ty)
             return $ (v, ARRAY ty' u) 
@@ -340,7 +343,6 @@ typeCheckDec venv tenv (TypeDec typeDecs range) = do
         return $ enter tenv' name (NAME name Nothing)) tenv typeDecs
     (venv''', tenv''') <- foldlM (\(venv'', tenv'') typeD-> typeCheckTypeD venv'' tenv'' typeD) (venv, tenv') typeDecs
     tenv'''' <- correctEnv tenv'''
-    liftIO $ print tenv''''
     return (venv''', tenv'''')
 
 typeCheckDec venv tenv (FunctionDec funDecs range) = do
