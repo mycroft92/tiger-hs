@@ -16,7 +16,7 @@ printEnv env = Map.foldrWithKey printEntry (return ()) env
       acc
 
 emptyValueEnv :: ValueEnv
-emptyValueEnv = Map.fromList [("getchar", FunEntry {formals = [], result = STRING}),("ord", FunEntry {formals = [STRING], result = INT}), ("print", FunEntry {formals = [STRING], result = NIL}), ("chr", FunEntry {formals = [INT], result = STRING})]
+emptyValueEnv = Map.fromList [("getchar", FunEntry {formals = [], result = STRING}),("ord", FunEntry {formals = [STRING], result = INT}), ("print", FunEntry {formals = [STRING], result = NIL}), ("chr", FunEntry {formals = [INT], result = STRING}), ("flush", FunEntry {formals = [], result = NIL})]
 
 emptyTypeEnv :: TypeEnv
 emptyTypeEnv = Map.fromList [("int",INT), ("string", STRING), ("nil",NIL)]
