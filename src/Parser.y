@@ -87,8 +87,8 @@ import Errors
 %left '*' '/'
 %left NEG
 %nonassoc '=' '<>' '<' '>' '<=' '>='
-%right '('
---%left ')'
+%right '(' '['
+%left ')' ']'
 
 %%
 
@@ -119,6 +119,7 @@ tydecs
 vardec :: {A.Dec}
   : var identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> A.VarDec n False Nothing $4 ($1 <->>$4))}
   | var identifier ':' identifier ':=' exp {unTok $2 (\rng (T.Identifier n) -> unTok $4 (\rng2 (T.Identifier ty) -> A.VarDec n False (Just ty) $6 ($1 <->>$6)))}
+  | var identifier ':=' identifier '[' exp ']' of exp { unTok $2 (\rng (T.Identifier n1) ->  A.VarDec n1 False Nothing (unTok $4 (\rng (T.Identifier n) -> A.ArrayExp n $6 $9 ($4 <->> $9))) ($1 <->> $9))}
 
 fundec
   : function identifier '(' tyfields ')' '=' exp {unTok $2 (\rng (T.Identifier n) -> A.FunDec n $4 Nothing $7 ($1 <->>$7))}
@@ -181,8 +182,8 @@ exp :: {A.Exp}
     : integer {unTok $1 (\rng (T.Integer int) -> A.IntExp int rng)}
     | string  {unTok $1 (\rng (T.String s) -> A.StringExp s rng)}
     | nil     {unTok $1 (\rng (T.Nil) -> A.NilExp rng)}
-    | identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
-    | lval    {A.VarExp $1}
+    | lval   %shift  {A.VarExp $1}
+    --| identifier '[' exp ']' of exp {unTok $1 (\rng (T.Identifier n) -> A.ArrayExp n $3 $6 ($1 <->> $6))} 
     | identifier '{' recordExp '}'  { unTok $1 (\rng (T.Identifier n) -> A.RecordExp n $3 ($1<->$4))}
     | identifier '(' commaExps ')' {unTok $1 (\rng (T.Identifier n) -> A.CallExp n (reverse $3) ($1 <-> $4))}
     | lval ':=' exp { A.AssignExp $1 $3 ($1 <<->> $3)}
